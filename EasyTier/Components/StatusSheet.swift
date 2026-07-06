@@ -77,7 +77,7 @@ struct NetworkSettingsSheet: View {
             .textSelection(.enabled)
             .navigationTitle("network_settings")
             .adaptiveNavigationBarTitleInline()
-            .formStyle(.grouped)
+            .adaptiveGroupedFormStyle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
@@ -254,7 +254,7 @@ struct PeerConnDetailSheet: View {
             .textSelection(.enabled)
             .navigationTitle("peer_details")
             .adaptiveNavigationBarTitleInline()
-            .formStyle(.grouped)
+            .adaptiveGroupedFormStyle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
@@ -336,7 +336,7 @@ struct NodeInfoSheet: View {
             .textSelection(.enabled)
             .navigationTitle("node_information")
             .adaptiveNavigationBarTitleInline()
-            .formStyle(.grouped)
+            .adaptiveGroupedFormStyle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
@@ -411,7 +411,7 @@ struct IPInfoSheet: View {
             .textSelection(.enabled)
             .navigationTitle("ip_information")
             .adaptiveNavigationBarTitleInline()
-            .formStyle(.grouped)
+            .adaptiveGroupedFormStyle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {
@@ -473,7 +473,7 @@ struct StunInfoSheet: View {
             .navigationTitle("stun_information")
             .adaptiveNavigationBarTitleInline()
             .textSelection(.enabled)
-            .formStyle(.grouped)
+            .adaptiveGroupedFormStyle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button {

@@ -153,7 +153,7 @@ struct StatusView<Manager: NetworkExtensionManagerProtocol>: View {
             info
 #endif
         }
-        .formStyle(.grouped)
+        .adaptiveGroupedFormStyle()
     }
     
     var doubleComlum: some View {
@@ -178,14 +178,14 @@ struct StatusView<Manager: NetworkExtensionManagerProtocol>: View {
                 }
             }
             .frame(minWidth: columnMinWidth, maxWidth: columnMaxWidth)
-            .formStyle(.grouped)
+            .adaptiveGroupedFormStyle()
             Form {
                 Section("event_log") {
                     TimelineLogPanel(events: status?.events ?? [])
                 }
             }
             .frame(minWidth: columnMinWidth)
-            .formStyle(.grouped)
+            .adaptiveGroupedFormStyle()
         }
     }
     

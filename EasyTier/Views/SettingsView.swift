@@ -64,7 +64,7 @@ struct SettingsView<Manager: NetworkExtensionManagerProtocol>: View {
             Form {
                 settingsContent
             }
-            .formStyle(.grouped)
+            .adaptiveGroupedFormStyle()
 #endif
         }
         .alert(item: $settingsErrorMessage) { msg in

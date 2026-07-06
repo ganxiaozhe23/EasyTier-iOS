@@ -250,7 +250,7 @@ struct DashboardView<Manager: NetworkExtensionManagerProtocol>: View {
 #endif
                 }
             }
-            .formStyle(.grouped)
+            .adaptiveGroupedFormStyle()
             .navigationTitle("device.management")
             .adaptiveNavigationBarTitleInline()
             .toolbar {

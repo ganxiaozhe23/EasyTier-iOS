@@ -34,7 +34,7 @@ struct NetworkEditView: View {
             NavigationLink("route_settings") { routeSettings }
             NavigationLink("port_forwards") { portForwardsSettings }
         }
-        .formStyle(.grouped)
+        .adaptiveGroupedFormStyle()
 #endif
     }
     
@@ -283,7 +283,7 @@ struct NetworkEditView: View {
         }
         .navigationTitle("advanced_settings")
         .adaptiveScrollDismissesKeyboardImmediately()
-        .formStyle(.grouped)
+        .adaptiveGroupedFormStyle()
     }
     
     var dnsSettings: some View {
@@ -333,7 +333,7 @@ struct NetworkEditView: View {
         }
         .navigationTitle("dns_settings")
         .adaptiveScrollDismissesKeyboardImmediately()
-        .formStyle(.grouped)
+        .adaptiveGroupedFormStyle()
     }
     
     var routeSettings: some View {
@@ -378,7 +378,7 @@ struct NetworkEditView: View {
         .sheet(isPresented: $showProxyCIDREditor) {
             proxyCIDREditor
         }
-        .formStyle(.grouped)
+        .adaptiveGroupedFormStyle()
     }
 
     var portForwardsSettings: some View {
@@ -444,7 +444,7 @@ struct NetworkEditView: View {
         }
         .navigationTitle("port_forwards")
         .adaptiveScrollDismissesKeyboardImmediately()
-        .formStyle(.grouped)
+        .adaptiveGroupedFormStyle()
     }
     
     var proxyCIDRsSettings: some View {
@@ -476,7 +476,7 @@ struct NetworkEditView: View {
                 }
             })
         }
-        .formStyle(.grouped)
+        .adaptiveGroupedFormStyle()
     }
     
     var proxyCIDREditor: some View {
@@ -496,7 +496,7 @@ struct NetworkEditView: View {
                     }
                 }
             }
-            .formStyle(.grouped)
+            .adaptiveGroupedFormStyle()
             .navigationTitle("common_text.edit_proxy_cidr")
             .adaptiveNavigationBarTitleInline()
             .toolbar {

@@ -157,4 +157,13 @@ extension View {
         self
 #endif
     }
+
+    @ViewBuilder
+    func adaptiveGroupedFormStyle() -> some View {
+        if #available(iOS 16.0, macOS 13.0, *) {
+            self.formStyle(.grouped)
+        } else {
+            self
+        }
+    }
 }
