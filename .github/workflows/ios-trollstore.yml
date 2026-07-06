@@ -107,7 +107,7 @@ jobs:
           set -o pipefail
           rm -rf build/export
           mkdir -p build/export build/logs
-          xcodebuild -exportArchive \
+          if xcodebuild -exportArchive \
             -archivePath "$PWD/build/archive/EasyTier.xcarchive" \
             -exportPath "$PWD/build/export" \
             -exportOptionsPlist ci_scripts/ExportOptionsUnsigned.plist \
@@ -116,7 +116,26 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
-            | tee build/logs/export.log
+            | tee build/logs/export.log; then
+            echo "xcodebuild -exportArchive produced an IPA."
+          else
+            export_status=$?
+            echo "::warning::xcodebuild -exportArchive failed with exit ${export_status}; packaging unsigned IPA from xcarchive."
+          fi
+
+          if ! find build/export -maxdepth 1 -type f -name "*.ipa" | grep -q .; then
+            APP_FROM_ARCHIVE="$PWD/build/archive/EasyTier.xcarchive/Products/Applications/EasyTier.app"
+            test -d "${APP_FROM_ARCHIVE}"
+            rm -rf build/export/Payload
+            mkdir -p build/export/Payload
+            ditto "${APP_FROM_ARCHIVE}" build/export/Payload/EasyTier.app
+            (
+              cd build/export
+              /usr/bin/zip -qry EasyTier-unsigned.ipa Payload
+            )
+          fi
+
+          find build/export -maxdepth 1 -type f -name "*.ipa" -print
 
       - name: Pseudo-sign TrollStore IPA
         shell: bash
