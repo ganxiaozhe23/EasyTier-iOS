@@ -63,7 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           brew update
-          brew install ldid-procursus
+          brew install ldid-procursus protobuf
           chmod +x ci_scripts/ci_post_clone.sh ci_scripts/sign_trollstore_ipa.sh
           ci_scripts/ci_post_clone.sh
 

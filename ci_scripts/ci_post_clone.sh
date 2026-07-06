@@ -23,11 +23,13 @@ rustc --version
 cargo --version
 rustup target list --installed
 
-PROTOC_VERSION="$(curl -sSfL https://api.github.com/repos/protocolbuffers/protobuf/releases/latest \
-  | sed -n 's/ *"tag_name": "v\([^"]*\)".*/\1/p')"
-PROTOC_OSX_ZIP="protoc-${PROTOC_VERSION}-osx-universal_binary.zip"
-PROTOC_URL="https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/${PROTOC_OSX_ZIP}"
-curl -sSfL "${PROTOC_URL}" -o "${PROTOC_OSX_ZIP}"
-mkdir -p "${HOME}/.local"
-unzip -o "${PROTOC_OSX_ZIP}" -d "${HOME}/.local"
-rm -f "${PROTOC_OSX_ZIP}"
+if [ -x "/opt/homebrew/bin/brew" ]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+fi
+
+if ! command -v protoc >/dev/null 2>&1; then
+    echo "error: protoc not found. Install protobuf before running this script." >&2
+    exit 1
+fi
+
+protoc --version
