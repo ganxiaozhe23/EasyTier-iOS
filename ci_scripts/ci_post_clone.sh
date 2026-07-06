@@ -2,15 +2,26 @@
 
 set -e
 
-if command -v rustup >/dev/null 2>&1; then
-    rustup target add aarch64-apple-ios
-else
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y -t aarch64-apple-ios
-fi
+setup_rust() {
+    if command -v rustup >/dev/null 2>&1; then
+        rustup set profile minimal
+        rustup toolchain install stable --profile minimal --target aarch64-apple-ios
+        rustup default stable
+    else
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain stable -t aarch64-apple-ios
+    fi
+}
+
+setup_rust
 
 if [ -f "${HOME}/.cargo/env" ]; then
     . "${HOME}/.cargo/env"
 fi
+
+rustc --version
+cargo --version
+rustup target list --installed
 
 PROTOC_VERSION="$(curl -sSfL https://api.github.com/repos/protocolbuffers/protobuf/releases/latest \
   | sed -n 's/ *"tag_name": "v\([^"]*\)".*/\1/p')"
