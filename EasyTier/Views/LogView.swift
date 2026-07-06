@@ -21,7 +21,7 @@ struct LogView<Manager: NetworkExtensionManagerProtocol>: View {
     @State private var exportErrorMessage: TextItem?
     
     var body: some View {
-        NavigationStack {
+        AdaptiveNavigationRoot {
             VStack(alignment: .leading) {
                 // Log Content
                 ScrollView {

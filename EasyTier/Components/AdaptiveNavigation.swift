@@ -43,7 +43,7 @@ extension View {
             }
         } else {
             return self.sheet(item: item) { _ in
-                NavigationStack {
+                AdaptiveNavigationRoot {
                     destination()
                         .adaptiveNavigationBarTitleInline()
                 }

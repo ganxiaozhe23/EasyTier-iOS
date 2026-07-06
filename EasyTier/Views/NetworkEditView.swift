@@ -20,12 +20,12 @@ struct NetworkEditView: View {
 #if os(iOS)
         List(selection: $selectedPane) {
             basicSettings
-            NavigationLink("advanced_settings", value: EditPane.advanced)
-            NavigationLink("dns_settings", value: EditPane.dns)
-            NavigationLink("route_settings", value: EditPane.route)
-            NavigationLink("port_forwards", value: EditPane.portForwards)
+            AdaptiveNavigationButton("advanced_settings", value: EditPane.advanced, selection: $selectedPane)
+            AdaptiveNavigationButton("dns_settings", value: EditPane.dns, selection: $selectedPane)
+            AdaptiveNavigationButton("route_settings", value: EditPane.route, selection: $selectedPane)
+            AdaptiveNavigationButton("port_forwards", value: EditPane.portForwards, selection: $selectedPane)
         }
-        .scrollDismissesKeyboard(.immediately)
+        .adaptiveScrollDismissesKeyboardImmediately()
 #else
         Form {
             basicSettings
@@ -62,7 +62,7 @@ struct NetworkEditView: View {
                 .ignoresSafeArea()
             }
         }
-        .scrollDismissesKeyboard(.immediately)
+        .adaptiveScrollDismissesKeyboardImmediately()
     }
 
     var basicSettings: some View {
@@ -71,14 +71,14 @@ struct NetworkEditView: View {
                 Toggle("dhcp", isOn: $profile.dhcp)
 
                 if !profile.dhcp {
-                    LabeledContent("address") {
+                    AdaptiveLabeledContent("address") {
                         IPv4Field(ip: $profile.virtualIPv4.ip, length: $profile.virtualIPv4.length)
                     }
                 }
             }
 
             Section("network") {
-                LabeledContent("network_name") {
+                AdaptiveLabeledContent("network_name") {
                     TextField(
                         "easytier",
                         text: $profile.networkName,
@@ -88,7 +88,7 @@ struct NetworkEditView: View {
                         .multilineTextAlignment(.trailing)
                 }
                 
-                LabeledContent("network_secret") {
+                AdaptiveLabeledContent("network_secret") {
                     SecureField(
                         "common_text.empty",
                         text: $profile.networkSecret,
@@ -98,7 +98,7 @@ struct NetworkEditView: View {
                     .multilineTextAlignment(.trailing)
                 }
                 
-                LabeledContent("hostname") {
+                AdaptiveLabeledContent("hostname") {
                     TextField(
                         "common_text.default",
                         text: $profile.hostname,
@@ -130,7 +130,7 @@ struct NetworkEditView: View {
     var advancedSettings: some View {
         Form {
             Section {
-                LabeledContent("mtu") {
+                AdaptiveLabeledContent("mtu") {
                     TextField(
                         "common_text.default",
                         text: Binding(
@@ -149,7 +149,7 @@ struct NetworkEditView: View {
                     .multilineTextAlignment(.trailing)
                     .numberKeyboardType()
                 }
-                LabeledContent("instance_recv_bps_limit") {
+                AdaptiveLabeledContent("instance_recv_bps_limit") {
                     TextField(
                         "example.instance_recv_bps_limit",
                         text: Binding(
@@ -181,10 +181,10 @@ struct NetworkEditView: View {
                     isOn: $profile.enableVPNPortal
                 )
                 if profile.enableVPNPortal {
-                    LabeledContent("vpn_portal_client_network") {
+                    AdaptiveLabeledContent("vpn_portal_client_network") {
                         IPv4Field(ip: $profile.vpnPortalClientCIDR.ip, length: $profile.vpnPortalClientCIDR.length)
                     }
-                    LabeledContent("vpn_portal_listen_port") {
+                    AdaptiveLabeledContent("vpn_portal_listen_port") {
                         TextField(
                             "example.vpn_portal_listen_port",
                             value: $profile.vpnPortalListenPort,
@@ -235,7 +235,7 @@ struct NetworkEditView: View {
                     isOn: $profile.enableSocks5
                 )
                 if profile.enableSocks5 {
-                    LabeledContent("listen_port") {
+                    AdaptiveLabeledContent("listen_port") {
                         TextField(
                             "example.socks5_port",
                             value: $profile.socks5Port,
@@ -282,7 +282,7 @@ struct NetworkEditView: View {
             }
         }
         .navigationTitle("advanced_settings")
-        .scrollDismissesKeyboard(.immediately)
+        .adaptiveScrollDismissesKeyboardImmediately()
         .formStyle(.grouped)
     }
     
@@ -294,7 +294,7 @@ struct NetworkEditView: View {
                     isOn: $profile.enableMagicDNS
                 )
                 if profile.enableMagicDNS {
-                    LabeledContent("tld_dns_zone") {
+                    AdaptiveLabeledContent("tld_dns_zone") {
                         TextField(
                             "example.tld_dns_zone",
                             text: $profile.magicDNSTLD,
@@ -332,7 +332,7 @@ struct NetworkEditView: View {
             }
         }
         .navigationTitle("dns_settings")
-        .scrollDismissesKeyboard(.immediately)
+        .adaptiveScrollDismissesKeyboardImmediately()
         .formStyle(.grouped)
     }
     
@@ -374,7 +374,7 @@ struct NetworkEditView: View {
             }
         }
         .navigationTitle("route_settings")
-        .scrollDismissesKeyboard(.immediately)
+        .adaptiveScrollDismissesKeyboardImmediately()
         .sheet(isPresented: $showProxyCIDREditor) {
             proxyCIDREditor
         }
@@ -443,7 +443,7 @@ struct NetworkEditView: View {
             })
         }
         .navigationTitle("port_forwards")
-        .scrollDismissesKeyboard(.immediately)
+        .adaptiveScrollDismissesKeyboardImmediately()
         .formStyle(.grouped)
     }
     
@@ -480,17 +480,17 @@ struct NetworkEditView: View {
     }
     
     var proxyCIDREditor: some View {
-        NavigationStack {
+        AdaptiveNavigationRoot {
             Form {
                 Section("common_text.proxy_cidr") {
-                    LabeledContent("cidr") {
+                    AdaptiveLabeledContent("cidr") {
                         IPv4Field(ip: $editingProxyCIDR.cidr, length: $editingProxyCIDR.length)
                     }
                 }
                 Section("common_text.mapped_cidr") {
                     Toggle("common_text.enable", isOn: $editingProxyCIDR.enableMapping)
                     if editingProxyCIDR.enableMapping {
-                        LabeledContent("cidr") {
+                        AdaptiveLabeledContent("cidr") {
                             IPv4Field(ip: $editingProxyCIDR.mappedCIDR, length: $editingProxyCIDR.length, disabledLengthEdit: true)
                         }
                     }
@@ -520,7 +520,7 @@ struct NetworkEditView: View {
 @available(iOS 17.0, macOS 14.0, *)
 #Preview("Network Edit Portrait") {
     @Previewable @State var profile = NetworkProfile()
-    NavigationStack {
+    AdaptiveNavigationRoot {
         NetworkEditView(profile: $profile)
     }
 }

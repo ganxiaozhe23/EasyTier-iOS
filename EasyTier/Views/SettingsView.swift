@@ -46,11 +46,11 @@ struct SettingsView<Manager: NetworkExtensionManagerProtocol>: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AdaptiveNavigationRoot {
             AdaptiveNavigation(primaryColumn, secondaryColumn, showNav: $selectedPane)
                 .navigationTitle("settings")
                 .adaptiveNavigationBarTitleInline()
-                .scrollDismissesKeyboard(.immediately)
+                .adaptiveScrollDismissesKeyboardImmediately()
         }
     }
     
@@ -117,7 +117,7 @@ struct SettingsView<Manager: NetworkExtensionManagerProtocol>: View {
     var settingsContent: some View {
         Group {
             Section("general") {
-                LabeledContent("status_refresh_rate") {
+                AdaptiveLabeledContent("status_refresh_rate") {
                     HStack {
                         TextField(
                             "1.0",
@@ -151,7 +151,7 @@ struct SettingsView<Manager: NetworkExtensionManagerProtocol>: View {
                     }
                 }
                 .disabled(manager.status != .disconnected)
-                LabeledContent("log_preserved_lines") {
+                AdaptiveLabeledContent("log_preserved_lines") {
                     TextField(
                         "1000",
                         value: $logPreservedLines,
@@ -210,17 +210,17 @@ struct SettingsView<Manager: NetworkExtensionManagerProtocol>: View {
 #endif
 
             Section("about.title") {
-                LabeledContent("app") {
+                AdaptiveLabeledContent("app") {
                     Text("EasyTier")
                 }
-                LabeledContent("version") {
+                AdaptiveLabeledContent("version") {
                     Text(appVersion)
                 }
                 Link("about.homepage", destination: URL(string: "https://github.com/EasyTier/EasyTier-iOS")!)
                 Link("about.privacy_policy", destination: URL(string: "https://easytier.cn/guide/privacy.html")!)
                 
 #if os(iOS)
-                NavigationLink("about.license", value: SettingsPane.license)
+                AdaptiveNavigationButton("about.license", value: SettingsPane.license, selection: $selectedPane)
 #else
                 NavigationLink("about.license") {
                     openSourceLicenseView

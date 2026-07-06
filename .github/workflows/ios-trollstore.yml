@@ -1,0 +1,186 @@
+name: iOS TrollStore IPA
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "ios-*"
+
+jobs:
+  build:
+    name: Build iOS 15 TrollStore IPA
+    runs-on: macos-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        shell: bash
+        run: |
+          set -euo pipefail
+          XCODE_PATH="$(python3 - <<'PY'
+          import glob
+          import os
+          import re
+
+          def version_key(path):
+              name = os.path.basename(path)
+              match = re.search(r'Xcode_(\d+(?:\.\d+)*)', name)
+              if not match:
+                  return ()
+              return tuple(int(part) for part in match.group(1).split('.'))
+
+          candidates = glob.glob('/Applications/Xcode_26*.app')
+          if candidates:
+              print(sorted(candidates, key=version_key)[-1])
+          PY
+          )"
+          if [ -z "${XCODE_PATH}" ]; then
+            echo "::error::No Xcode 26.x installation found on macos-latest."
+            ls -1 /Applications/Xcode*.app || true
+            exit 1
+          fi
+          sudo xcode-select -s "${XCODE_PATH}/Contents/Developer"
+          xcodebuild -version
+
+      - name: Cache build dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/SourcePackages
+            ~/Library/Caches/org.swift.swiftpm
+            ~/.cargo/registry
+            ~/.cargo/git
+            Core/target
+          key: ios-trollstore-${{ runner.os }}-${{ hashFiles('EasyTier.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'Core/Cargo.lock') }}
+          restore-keys: |
+            ios-trollstore-${{ runner.os }}-
+
+      - name: Install toolchain dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew update
+          brew install ldid-procursus
+          chmod +x ci_scripts/ci_post_clone.sh ci_scripts/sign_trollstore_ipa.sh
+          ci_scripts/ci_post_clone.sh
+
+      - name: Resolve Swift packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/logs build/SourcePackages
+          xcodebuild -resolvePackageDependencies \
+            -project EasyTier.xcodeproj \
+            -scheme EasyTier \
+            -clonedSourcePackagesDirPath "$PWD/build/SourcePackages" \
+            | tee build/logs/resolve-packages.log
+
+      - name: Archive unsigned app
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          mkdir -p build/archive build/logs
+          xcodebuild archive \
+            -project EasyTier.xcodeproj \
+            -scheme EasyTier \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$PWD/build/archive/EasyTier.xcarchive" \
+            -clonedSourcePackagesDirPath "$PWD/build/SourcePackages" \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            | tee build/logs/archive.log
+
+      - name: Export unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          rm -rf build/export
+          mkdir -p build/export build/logs
+          xcodebuild -exportArchive \
+            -archivePath "$PWD/build/archive/EasyTier.xcarchive" \
+            -exportPath "$PWD/build/export" \
+            -exportOptionsPlist ci_scripts/ExportOptionsUnsigned.plist \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            | tee build/logs/export.log
+
+      - name: Pseudo-sign TrollStore IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          ci_scripts/sign_trollstore_ipa.sh "$PWD/build/export" "$PWD/build/EasyTier-iOS15-TrollStore.ipa" \
+            | tee build/logs/sign.log
+
+      - name: Validate IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          IPA="$PWD/build/EasyTier-iOS15-TrollStore.ipa"
+          VALIDATION_DIR="$(mktemp -d)"
+          trap 'rm -rf "${VALIDATION_DIR}"' EXIT
+
+          unzip -l "${IPA}" | tee build/logs/ipa-contents.txt
+          unzip -q "${IPA}" -d "${VALIDATION_DIR}"
+
+          APP_DIR="${VALIDATION_DIR}/Payload/EasyTier.app"
+          EXT_DIR="${APP_DIR}/PlugIns/EasyTierNetworkExtension.appex"
+
+          test -d "${APP_DIR}"
+          test -d "${EXT_DIR}"
+          if find "${APP_DIR}/PlugIns" -maxdepth 1 -type d -name "*Widget*.appex" | grep -q .; then
+            echo "::error::Widget extension found in IPA."
+            exit 1
+          fi
+
+          APP_MIN_OS="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "${APP_DIR}/Info.plist")"
+          EXT_MIN_OS="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "${EXT_DIR}/Info.plist")"
+          test "${APP_MIN_OS}" = "15.0"
+          test "${EXT_MIN_OS}" = "15.0"
+
+          APP_BINARY="${APP_DIR}/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${APP_DIR}/Info.plist")"
+          EXT_BINARY="${EXT_DIR}/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${EXT_DIR}/Info.plist")"
+
+          ldid -e "${APP_BINARY}" | tee build/logs/app-entitlements.txt
+          ldid -e "${EXT_BINARY}" | tee build/logs/extension-entitlements.txt
+          file "${APP_BINARY}" "${EXT_BINARY}" | tee build/logs/macho-file.txt
+          vtool -show-build "${APP_BINARY}" | tee build/logs/app-vtool.txt
+          vtool -show-build "${EXT_BINARY}" | tee build/logs/extension-vtool.txt
+
+          grep -q "com.apple.security.application-groups" build/logs/app-entitlements.txt
+          grep -q "com.apple.developer.networking.networkextension" build/logs/app-entitlements.txt
+          grep -q "com.apple.developer.networking.networkextension" build/logs/extension-entitlements.txt
+          grep -q "arm64" build/logs/macho-file.txt
+
+      - name: Zip xcarchive
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d build/archive/EasyTier.xcarchive ]; then
+            ditto -c -k --sequesterRsrc --keepParent build/archive/EasyTier.xcarchive build/EasyTier.xcarchive.zip
+          fi
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EasyTier-iOS15-TrollStore
+          if-no-files-found: error
+          path: |
+            build/EasyTier-iOS15-TrollStore.ipa
+            build/EasyTier.xcarchive.zip
+            build/logs/**

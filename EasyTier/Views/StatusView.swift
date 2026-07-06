@@ -47,10 +47,21 @@ struct StatusView<Manager: NetworkExtensionManagerProtocol>: View {
     var body: some View {
         Group {
             if sizeClass == .regular {
+#if os(iOS)
+                if #available(iOS 16.0, *) {
+                    ViewThatFits(in: .horizontal) {
+                        doubleComlum
+                        singleColumn
+                    }
+                } else {
+                    doubleComlum
+                }
+#else
                 ViewThatFits(in: .horizontal) {
                     doubleComlum
                     singleColumn
                 }
+#endif
             } else {
                 singleColumn
             }

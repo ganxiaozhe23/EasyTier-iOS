@@ -7,7 +7,7 @@ struct NetworkSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        AdaptiveNavigationRoot {
             Form {
                 if let settings {
                     if let ipv4 = settings.ipv4 {
@@ -64,7 +64,7 @@ struct NetworkSettingsSheet: View {
 
                     if let mtu = settings.mtu {
                         Section("mtu") {
-                            LabeledContent("mtu", value: String(mtu))
+                            AdaptiveLabeledContent("mtu", value: String(mtu))
                         }
                     }
                 } else {
@@ -91,7 +91,7 @@ struct NetworkSettingsSheet: View {
     }
 
     private func labeledLines(_ label: LocalizedStringKey, values: [String]) -> some View {
-        LabeledContent(label) {
+        AdaptiveLabeledContent(label) {
             Text(values.isEmpty ? String(localized: "not_available") : values.joined(separator: "\n"))
         }
     }
@@ -163,41 +163,41 @@ struct PeerConnDetailSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AdaptiveNavigationRoot {
             Form {
                 if let pair {
                     Section("peer") {
-                        LabeledContent("hostname", value: pair.route.hostname)
-                        LabeledContent("peer_id", value: String(pair.route.peerId))
+                        AdaptiveLabeledContent("hostname", value: pair.route.hostname)
+                        AdaptiveLabeledContent("peer_id", value: String(pair.route.peerId))
                         if let ipv4 = pair.route.ipv4Addr {
-                            LabeledContent("ipv4_addr", value: ipv4.description)
+                            AdaptiveLabeledContent("ipv4_addr", value: ipv4.description)
                         }
                         if let ipv6 = pair.route.ipv6Addr {
-                            LabeledContent("ipv6_addr", value: ipv6.description)
+                            AdaptiveLabeledContent("ipv6_addr", value: ipv6.description)
                         }
-                        LabeledContent("inst_id", value: String(pair.route.instId))
-                        LabeledContent("version", value: String(pair.route.version))
-                        LabeledContent("next_hop_peer_id", value: String(pair.route.nextHopPeerId))
-                        LabeledContent("cost", value: String(pair.route.cost))
-                        LabeledContent("path_latency", value: latencyValueString(pair.route.pathLatency))
+                        AdaptiveLabeledContent("inst_id", value: String(pair.route.instId))
+                        AdaptiveLabeledContent("version", value: String(pair.route.version))
+                        AdaptiveLabeledContent("next_hop_peer_id", value: String(pair.route.nextHopPeerId))
+                        AdaptiveLabeledContent("cost", value: String(pair.route.cost))
+                        AdaptiveLabeledContent("path_latency", value: latencyValueString(pair.route.pathLatency))
                         if let nextHopLatencyFirst = pair.route.nextHopPeerIdLatencyFirst {
-                            LabeledContent("next_hop_peer_id_latency_first", value: String(nextHopLatencyFirst))
+                            AdaptiveLabeledContent("next_hop_peer_id_latency_first", value: String(nextHopLatencyFirst))
                         }
                         if let costLatencyFirst = pair.route.costLatencyFirst {
-                            LabeledContent("cost_latency_first", value: String(costLatencyFirst))
+                            AdaptiveLabeledContent("cost_latency_first", value: String(costLatencyFirst))
                         }
                         if let pathLatencyLatencyFirst = pair.route.pathLatencyLatencyFirst {
-                            LabeledContent("path_latency_latency_first", value: latencyValueString(pathLatencyLatencyFirst))
+                            AdaptiveLabeledContent("path_latency_latency_first", value: latencyValueString(pathLatencyLatencyFirst))
                         }
                         if let featureFlags = pair.route.featureFlag {
-                            LabeledContent("feature_flag", value: featureFlagString(featureFlags))
+                            AdaptiveLabeledContent("feature_flag", value: featureFlagString(featureFlags))
                         }
                         if let peerInfo = pair.peer {
                             if let defaultConnId = peerInfo.defaultConnId {
-                                LabeledContent("default_conn_id", value: uuidString(defaultConnId))
+                                AdaptiveLabeledContent("default_conn_id", value: uuidString(defaultConnId))
                             }
                             if !peerInfo.directlyConnectedConns.isEmpty {
-                                LabeledContent(
+                                AdaptiveLabeledContent(
                                     "directly_connected_conns",
                                     value: peerInfo.directlyConnectedConns.map(uuidString).sorted().joined(separator: "\n")
                                 )
@@ -221,25 +221,25 @@ struct PeerConnDetailSheet: View {
                     } else {
                         ForEach(conns, id: \.connId) { conn in
                             Section("connection_\(conn.connId)") {
-                                LabeledContent("peer_id", value: String(conn.peerId))
-                                LabeledContent("role", value: conn.isClient ? "Client" : "Server")
-                                LabeledContent("loss_rate", value: percentString(conn.lossRate))
-                                LabeledContent("closed", value: triState(conn.isClosed))
+                                AdaptiveLabeledContent("peer_id", value: String(conn.peerId))
+                                AdaptiveLabeledContent("role", value: conn.isClient ? "Client" : "Server")
+                                AdaptiveLabeledContent("loss_rate", value: percentString(conn.lossRate))
+                                AdaptiveLabeledContent("closed", value: triState(conn.isClosed))
 
-                                LabeledContent("features", value: conn.features.isEmpty ? "None" : conn.features.joined(separator: ", "))
+                                AdaptiveLabeledContent("features", value: conn.features.isEmpty ? "None" : conn.features.joined(separator: ", "))
 
                                 if let tunnel = conn.tunnel {
-                                    LabeledContent("tunnel_type", value: tunnel.tunnelType.uppercased())
-                                    LabeledContent("local_addr", value: tunnel.localAddr.url)
-                                    LabeledContent("remote_addr", value: tunnel.remoteAddr.url)
+                                    AdaptiveLabeledContent("tunnel_type", value: tunnel.tunnelType.uppercased())
+                                    AdaptiveLabeledContent("local_addr", value: tunnel.localAddr.url)
+                                    AdaptiveLabeledContent("remote_addr", value: tunnel.remoteAddr.url)
                                 }
 
                                 if let stats = conn.stats {
-                                    LabeledContent("rx_bytes", value: formatBytes(stats.rxBytes))
-                                    LabeledContent("tx_bytes", value: formatBytes(stats.txBytes))
-                                    LabeledContent("rx_packets", value: String(stats.rxPackets))
-                                    LabeledContent("tx_packets", value: String(stats.txPackets))
-                                    LabeledContent("latency", value: latencyString(stats.latencyUs))
+                                    AdaptiveLabeledContent("rx_bytes", value: formatBytes(stats.rxBytes))
+                                    AdaptiveLabeledContent("tx_bytes", value: formatBytes(stats.txBytes))
+                                    AdaptiveLabeledContent("rx_packets", value: String(stats.rxPackets))
+                                    AdaptiveLabeledContent("tx_packets", value: String(stats.txPackets))
+                                    AdaptiveLabeledContent("latency", value: latencyString(stats.latencyUs))
                                 }
                             }
                         }
@@ -314,17 +314,17 @@ struct NodeInfoSheet: View {
     }
     
     var body: some View {
-        NavigationStack {
+        AdaptiveNavigationRoot {
             Form {
                 if let nodeInfo {
                     Section("general") {
-                        LabeledContent("hostname", value: nodeInfo.hostname)
+                        AdaptiveLabeledContent("hostname", value: nodeInfo.hostname)
                         if let peerID = nodeInfo.peerID {
-                            LabeledContent("peer_id", value: String(peerID))
+                            AdaptiveLabeledContent("peer_id", value: String(peerID))
                         }
-                        LabeledContent("version", value: nodeInfo.version)
+                        AdaptiveLabeledContent("version", value: nodeInfo.version)
                         if let virtualIPv4 = nodeInfo.virtualIPv4 {
-                            LabeledContent("virtual_ipv4", value: virtualIPv4.description)
+                            AdaptiveLabeledContent("virtual_ipv4", value: virtualIPv4.description)
                         }
                     }
                 } else {
@@ -359,12 +359,12 @@ struct IPInfoSheet: View {
     }
     
     var body: some View {
-        NavigationStack {
+        AdaptiveNavigationRoot {
             Form {
                 if let nodeInfo {
                     if let virtualIPv4 = nodeInfo.virtualIPv4 {
                         Section("general") {
-                            LabeledContent("virtual_ipv4", value: virtualIPv4.description)
+                            AdaptiveLabeledContent("virtual_ipv4", value: virtualIPv4.description)
                         }
                     }
                     
@@ -372,10 +372,10 @@ struct IPInfoSheet: View {
                         if ips.publicIPv4 != nil || ips.publicIPv6 != nil {
                             Section("ip_information") {
                                 if let publicIPv4 = ips.publicIPv4 {
-                                    LabeledContent("public_ipv4", value: publicIPv4.description)
+                                    AdaptiveLabeledContent("public_ipv4", value: publicIPv4.description)
                                 }
                                 if let publicIPv6 = ips.publicIPv6 {
-                                    LabeledContent("public_ipv6", value: publicIPv6.description)
+                                    AdaptiveLabeledContent("public_ipv6", value: publicIPv6.description)
                                 }
                             }
                         }
@@ -434,25 +434,25 @@ struct StunInfoSheet: View {
     }
     
     var body: some View {
-        NavigationStack {
+        AdaptiveNavigationRoot {
             Form {
                 if let stunInfo {
                     Section("nat_types") {
-                        LabeledContent("udp_nat_type") {
+                        AdaptiveLabeledContent("udp_nat_type") {
                             Text(stunInfo.udpNATType.description)
                         }
-                        LabeledContent("tcp_nat_type") {
+                        AdaptiveLabeledContent("tcp_nat_type") {
                             Text(stunInfo.tcpNATType.description)
                         }
                     }
                     
                     Section("details") {
-                        LabeledContent("last_update", value: formatDate(stunInfo.lastUpdateTime))
+                        AdaptiveLabeledContent("last_update", value: formatDate(stunInfo.lastUpdateTime))
                         if let minPort = stunInfo.minPort {
-                            LabeledContent("min_port", value: String(minPort))
+                            AdaptiveLabeledContent("min_port", value: String(minPort))
                         }
                         if let maxPort = stunInfo.maxPort {
-                            LabeledContent("max_port", value: String(maxPort))
+                            AdaptiveLabeledContent("max_port", value: String(maxPort))
                         }
                     }
                     
