@@ -1,3 +1,4 @@
+import Foundation
 @preconcurrency import NetworkExtension
 import os
 
@@ -6,6 +7,32 @@ public let APP_GROUP_ID: String = "group.site.yinmo.easytier"
 public let ICLOUD_CONTAINER_ID: String = "iCloud.site.yinmo.easytier"
 public let LOG_FILENAME: String = "easytier.log"
 public let HOST_DIAGNOSTIC_LOG_FILENAME: String = "easytier-host.log"
+
+public func appendSharedDiagnostic(_ message: String, component: String) {
+    let timestamp = ISO8601DateFormatter().string(from: Date())
+    let line = "[\(timestamp)] [\(component)] \(message)\n"
+
+    guard let containerURL = FileManager.default.containerURL(
+        forSecurityApplicationGroupIdentifier: APP_GROUP_ID
+    ) else {
+        return
+    }
+
+    let url = containerURL.appendingPathComponent(HOST_DIAGNOSTIC_LOG_FILENAME)
+    guard let data = line.data(using: .utf8) else { return }
+
+    do {
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd()
+        handle.write(data)
+        try handle.close()
+    } catch {
+        return
+    }
+}
 
 public enum LogLevel: String, Codable, CaseIterable {
     case trace = "trace"

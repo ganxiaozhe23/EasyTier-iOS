@@ -21,6 +21,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private var lastOptions: EasyTierOptions?
     private var lastAppliedSettings: TunnelNetworkSettingsSnapshot?
     private var needReapplySettings: Bool = false
+
+    private func appendBootstrapDiagnostic(_ message: String) {
+        appendSharedDiagnostic(message, component: "EXT")
+    }
     
     private func postDarwinNotification(_ name: String) {
         let center = CFNotificationCenterGetDarwinNotifyCenter()
@@ -28,6 +32,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     }
     
     private func notifyHostAppError(_ message: String) {
+        appendBootstrapDiagnostic("notifyHostAppError: \(message)")
         // Persist the latest error into shared defaults so the host app can read details
         if let defaults = UserDefaults(suiteName: APP_GROUP_ID) {
             defaults.set(message, forKey: "TunnelLastError")
@@ -46,8 +51,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         if ret != 0 {
             let err = extractRustString(errPtr)
             logger.error("registerRunningInfoCallback() failed: \(err ?? "Unknown", privacy: .public)")
+            appendBootstrapDiagnostic("register running info callback failed: \(err ?? "Unknown")")
         } else {
             logger.info("registerRunningInfoCallback() registered")
+            appendBootstrapDiagnostic("register running info callback succeeded")
         }
     }
 
@@ -66,8 +73,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         if regRet != 0 {
             let regErr = extractRustString(regErrPtr)
             logger.error("startTunnel() failed to register stop callback: \(regErr ?? "Unknown", privacy: .public)")
+            appendBootstrapDiagnostic("register stop callback failed: \(regErr ?? "Unknown")")
         } else {
             logger.info("startTunnel() registered FFI stop callback")
+            appendBootstrapDiagnostic("register stop callback succeeded")
         }
     }
     
@@ -78,6 +87,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let ret = get_latest_error_msg(&msgPtr, &errPtr)
         if ret == 0, let msg = extractRustString(msgPtr) {
             logger.error("handleRustStop(): \(msg, privacy: .public)")
+            appendBootstrapDiagnostic("rust stopped: \(msg)")
             // Inform host app and cancel the tunnel on global queue
             DispatchQueue.main.async {
                 self.notifyHostAppError(msg)
@@ -85,6 +95,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             }
         } else if let err = extractRustString(errPtr) {
             logger.error("handleRustStop() failed to get latest error: \(err, privacy: .public)")
+            appendBootstrapDiagnostic("rust stop callback failed to read latest error: \(err)")
         }
     }
 
@@ -105,8 +116,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private func applyNetworkSettings(_ completion: @escaping ((any Error)?) -> Void) {
+        appendBootstrapDiagnostic("applyNetworkSettings entered")
         guard !self.reasserting else {
             logger.error("applyNetworkSettings() still in progress")
+            appendBootstrapDiagnostic("applyNetworkSettings rejected: still in progress")
             completion("still in progress")
             return
         }
@@ -114,6 +127,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         Thread.sleep(forTimeInterval: debounceInterval)
         guard let options = lastOptions else {
             logger.error("applyNetworkSettings() cannot get options")
+            appendBootstrapDiagnostic("applyNetworkSettings failed: missing options")
             completion("cannot get options")
             return
         }
@@ -135,11 +149,13 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
         if newSnapshot == lastAppliedSettings {
             logger.warning("applyNetworkSettings() new settings are excatly the same as last applied, skipping")
+            appendBootstrapDiagnostic("applyNetworkSettings skipped: settings unchanged")
             wrappedCompletion(nil)
             return
         }
         let needSetTunFd = shouldUpdateTunFd(old: lastAppliedSettings, new: newSnapshot)
         logger.info("applyNetworkSettings() need set tunfd: \(needSetTunFd), settings: \(settings, privacy: .public)")
+        appendBootstrapDiagnostic("applyNetworkSettings setting tunnel network settings: needSetTunFd=\(needSetTunFd)")
         self.setTunnelNetworkSettings(settings) { [weak self] error in
             guard let self else {
                 wrappedCompletion(error)
@@ -147,6 +163,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             }
             if let error {
                 logger.error("handleRunningInfoChanged() failed to setTunnelNetworkSettings: \(error, privacy: .public)")
+                self.appendBootstrapDiagnostic("setTunnelNetworkSettings failed: \(error.localizedDescription)")
                 self.notifyHostAppError(error.localizedDescription)
                 wrappedCompletion(error)
                 return
@@ -159,35 +176,65 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                     guard ret == 0 else {
                         let err = extractRustString(errPtr)
                         logger.error("handleRunningInfoChanged() failed to set tun fd to \(tunFd): \(err, privacy: .public)")
+                        self.appendBootstrapDiagnostic("set_tun_fd failed: fd=\(tunFd), error=\(err ?? "Unknown")")
                         self.notifyHostAppError(err ?? "Unknown")
                         wrappedCompletion("failed to set tun fd")
                         return
                     }
+                    self.appendBootstrapDiagnostic("set_tun_fd succeeded: fd=\(tunFd)")
                 } else {
                     logger.error("handleRunningInfoChanged() no available tun fd")
-                    notifyHostAppError("no available tun fd")
+                    self.appendBootstrapDiagnostic("set_tun_fd failed: no available tun fd")
+                    self.notifyHostAppError("no available tun fd")
+                    wrappedCompletion("no available tun fd")
+                    return
                 }
             }
             logger.info("applyNetworkSettings() settings applied")
+            self.appendBootstrapDiagnostic("applyNetworkSettings succeeded")
             wrappedCompletion(nil)
         }
     }
 
     override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
+        appendBootstrapDiagnostic("startTunnel entered")
         logger.warning("startTunnel(): triggered")
         PacketTunnelProvider.current = self
-        
-        let defaults = UserDefaults(suiteName: APP_GROUP_ID)
-        guard let configData = defaults?.data(forKey: "VPNConfig"),
-              let options = try? JSONDecoder().decode(EasyTierOptions.self, from: configData) else {
+
+        guard let defaults = UserDefaults(suiteName: APP_GROUP_ID) else {
+            logger.error("startTunnel() App Group defaults unavailable")
+            appendBootstrapDiagnostic("startTunnel failed: App Group defaults unavailable")
+            self.notifyHostAppError("App Group defaults unavailable")
+            completionHandler("App Group defaults unavailable")
+            return
+        }
+        appendBootstrapDiagnostic("startTunnel App Group defaults available")
+
+        guard let configData = defaults.data(forKey: "VPNConfig") else {
             logger.error("startTunnel() options is nil")
+            appendBootstrapDiagnostic("startTunnel failed: VPNConfig missing")
             self.notifyHostAppError("options is nil")
             completionHandler("options is nil")
             return
         }
+        appendBootstrapDiagnostic("startTunnel VPNConfig found: bytes=\(configData.count)")
+
+        let options: EasyTierOptions
+        do {
+            options = try JSONDecoder().decode(EasyTierOptions.self, from: configData)
+            appendBootstrapDiagnostic("startTunnel VPNConfig decoded: logLevel=\(options.logLevel.rawValue), configBytes=\(options.config.utf8.count)")
+        } catch {
+            logger.error("startTunnel() failed to decode options: \(error.localizedDescription, privacy: .public)")
+            appendBootstrapDiagnostic("startTunnel failed: VPNConfig decode error=\(error.localizedDescription)")
+            self.notifyHostAppError("VPNConfig decode failed: \(error.localizedDescription)")
+            completionHandler(error)
+            return
+        }
         self.lastOptions = options
-        
+
+        appendBootstrapDiagnostic("initRustLogger starting")
         initRustLogger(level: options.logLevel)
+        appendBootstrapDiagnostic("run_network_instance starting")
         var errPtr: UnsafePointer<CChar>? = nil
         let ret = options.config.withCString { strPtr in
             return run_network_instance(strPtr, &errPtr)
@@ -195,20 +242,28 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         guard ret == 0 else {
             let err = extractRustString(errPtr)
             logger.error("startTunnel() failed to run: \(err ?? "Unknown", privacy: .public)")
+            appendBootstrapDiagnostic("run_network_instance failed: \(err ?? "Unknown")")
             self.notifyHostAppError(err ?? "Unknown")
             completionHandler(err)
             return
         }
+        appendBootstrapDiagnostic("run_network_instance succeeded")
+        appendBootstrapDiagnostic("registering callbacks")
         registerRustStopCallback()
         registerRunningInfoCallback()
+        appendBootstrapDiagnostic("applying initial network settings")
         applyNetworkSettings(completionHandler)
     }
     
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         logger.warning("stopTunnel(): triggered")
+        appendBootstrapDiagnostic("stopTunnel entered: reason=\(String(describing: reason))")
         let ret = stop_network_instance()
         if ret != 0 {
             logger.error("stopTunnel() failed")
+            appendBootstrapDiagnostic("stop_network_instance failed")
+        } else {
+            appendBootstrapDiagnostic("stop_network_instance succeeded")
         }
         PacketTunnelProvider.current = nil
         completionHandler()

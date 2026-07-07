@@ -170,6 +170,26 @@ jobs:
           test "${APP_MIN_OS}" = "15.0"
           test "${EXT_MIN_OS}" = "15.0"
 
+          APP_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${APP_DIR}/Info.plist")"
+          EXT_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${EXT_DIR}/Info.plist")"
+          EXT_POINT="$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${EXT_DIR}/Info.plist")"
+          EXT_PRINCIPAL="$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPrincipalClass' "${EXT_DIR}/Info.plist")"
+          EXT_MACH_SERVICE="$(/usr/libexec/PlistBuddy -c 'Print :NEMachServiceName' "${EXT_DIR}/Info.plist")"
+
+          {
+            echo "APP_BUNDLE_ID=${APP_BUNDLE_ID}"
+            echo "EXT_BUNDLE_ID=${EXT_BUNDLE_ID}"
+            echo "EXT_POINT=${EXT_POINT}"
+            echo "EXT_PRINCIPAL=${EXT_PRINCIPAL}"
+            echo "EXT_MACH_SERVICE=${EXT_MACH_SERVICE}"
+          } | tee build/logs/bundle-validation.txt
+
+          test "${APP_BUNDLE_ID}" = "site.yinmo.easytier"
+          test "${EXT_BUNDLE_ID}" = "site.yinmo.easytier.tunnel"
+          test "${EXT_POINT}" = "com.apple.networkextension.packet-tunnel"
+          test "${EXT_PRINCIPAL}" = "EasyTierNetworkExtension.PacketTunnelProvider"
+          test "${EXT_MACH_SERVICE}" = "site.yinmo.easytier.tunnel"
+
           APP_BINARY="${APP_DIR}/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${APP_DIR}/Info.plist")"
           EXT_BINARY="${EXT_DIR}/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${EXT_DIR}/Info.plist")"
 
@@ -183,6 +203,7 @@ jobs:
           grep -q "com.apple.developer.networking.networkextension" build/logs/app-entitlements.txt
           grep -q "com.apple.developer.networking.networkextension" build/logs/extension-entitlements.txt
           grep -q "arm64" build/logs/macho-file.txt
+          strings "${APP_BINARY}" | grep "site.yinmo.easytier.tunnel" | tee build/logs/provider-bundle-string.txt
 
       - name: Zip xcarchive
         if: always()

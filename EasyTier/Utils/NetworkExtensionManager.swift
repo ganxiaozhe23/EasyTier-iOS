@@ -45,10 +45,11 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
         case invalidResponse
         case clearFailed(String)
         case exportFailed(String)
-        case busy(NEVPNStatus)
+        case busy(String)
         case managerLoading
         case appGroupUnavailable
         case saveOptionsFailed
+        case connectionDidNotStart(String)
 
         var errorDescription: String? {
             switch self {
@@ -61,13 +62,15 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
             case .exportFailed(let message):
                 return message
             case .busy(let status):
-                return "VPN is already \(String(describing: status))."
+                return "VPN is already \(status)."
             case .managerLoading:
                 return "VPN manager is still loading. Please try again."
             case .appGroupUnavailable:
                 return "App Group container is unavailable. Reinstall the IPA with TrollStore and try again."
             case .saveOptionsFailed:
                 return "Failed to save VPN configuration."
+            case .connectionDidNotStart(let status):
+                return "VPN did not enter connecting state. Current status: \(status)."
             }
         }
     }
@@ -86,30 +89,28 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
     }
 
     static func appendHostDiagnostic(_ message: String) {
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let line = "[\(timestamp)] [APP] \(message)\n"
+        appendSharedDiagnostic(message, component: "APP")
+    }
 
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: APP_GROUP_ID
-        ) else {
-            logger.error("appendHostDiagnostic() failed: App Group container not found")
-            return
+    static func describeStatus(_ status: NEVPNStatus) -> String {
+        let name: String
+        switch status {
+        case .invalid:
+            name = "invalid"
+        case .disconnected:
+            name = "disconnected"
+        case .connecting:
+            name = "connecting"
+        case .connected:
+            name = "connected"
+        case .reasserting:
+            name = "reasserting"
+        case .disconnecting:
+            name = "disconnecting"
+        @unknown default:
+            name = "unknown"
         }
-
-        let url = containerURL.appendingPathComponent(HOST_DIAGNOSTIC_LOG_FILENAME)
-        guard let data = line.data(using: .utf8) else { return }
-
-        do {
-            if !FileManager.default.fileExists(atPath: url.path) {
-                FileManager.default.createFile(atPath: url.path, contents: nil)
-            }
-            let handle = try FileHandle(forWritingTo: url)
-            try handle.seekToEnd()
-            handle.write(data)
-            try handle.close()
-        } catch {
-            logger.error("appendHostDiagnostic() failed: \(String(describing: error))")
-        }
+        return "\(name)(rawValue=\(status.rawValue))"
     }
 
     private func registerObserver() {
@@ -130,6 +131,9 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
                     self.connection = connection
                     self.status = self.connection?.status ?? .invalid
                     self.connectedDate = self.connection?.connectedDate
+                    Self.appendHostDiagnostic(
+                        "status changed: status=\(Self.describeStatus(self.status)), connectedDate=\(String(describing: self.connectedDate))"
+                    )
                     if self.status == .invalid {
                         self.manager = nil
                     }
@@ -168,6 +172,10 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
         status = manager?.connection.status ?? .invalid
         connectedDate = manager?.connection.connectedDate
         isAlwaysOnEnabled = manager?.isOnDemandEnabled ?? false
+        let providerBundleID = (manager?.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier ?? "nil"
+        Self.appendHostDiagnostic(
+            "manager set: exists=\(manager != nil), enabled=\(manager?.isEnabled ?? false), status=\(Self.describeStatus(status)), providerBundleID=\(providerBundleID)"
+        )
         registerObserver()
     }
     
@@ -278,11 +286,12 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
     }
     
     func connect() async throws {
-        Self.appendHostDiagnostic("connect requested: status=\(String(describing: status)), isLoading=\(isLoading)")
+        Self.appendHostDiagnostic("connect requested: status=\(Self.describeStatus(status)), isLoading=\(isLoading)")
         guard ![.connecting, .connected, .disconnecting, .reasserting].contains(status) else {
             Self.logger.warning("connect() failed: in \(String(describing: self.status)) status")
-            Self.appendHostDiagnostic("connect rejected: busy status=\(String(describing: status))")
-            throw NEManagerError.busy(status)
+            let statusDescription = Self.describeStatus(status)
+            Self.appendHostDiagnostic("connect rejected: busy status=\(statusDescription)")
+            throw NEManagerError.busy(statusDescription)
         }
         guard !isLoading else {
             Self.logger.warning("connect() failed: not loaded")
@@ -312,19 +321,44 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
             }
         } catch {
             Self.logger.error("connect() start vpn tunnel failed: \(String(describing: error))")
-            Self.appendHostDiagnostic("connect failed: startVPNTunnel error=\(error.localizedDescription), status=\(String(describing: self.status))")
+            Self.appendHostDiagnostic("connect failed: startVPNTunnel error=\(error.localizedDescription), status=\(Self.describeStatus(self.status))")
             throw error
         }
         Self.logger.info("connect() started")
-        Self.appendHostDiagnostic("connect started: status=\(String(describing: status))")
+        Self.appendHostDiagnostic("connect startVPNTunnel returned: status=\(Self.describeStatus(status))")
+        let observedStatus = await waitForConnectionStart()
+        Self.appendHostDiagnostic("connect observed after wait: status=\(Self.describeStatus(observedStatus))")
+        if [.invalid, .disconnected].contains(observedStatus) {
+            throw NEManagerError.connectionDidNotStart(Self.describeStatus(observedStatus))
+        }
         do {
             try await load()
-            Self.appendHostDiagnostic("connect post-load status=\(String(describing: status))")
+            Self.appendHostDiagnostic("connect post-load status=\(Self.describeStatus(status))")
         } catch {
             Self.appendHostDiagnostic("connect post-load failed: \(error.localizedDescription)")
         }
         // Immediately sync widget state after initiating connection
         syncWidgetState()
+    }
+
+    private func waitForConnectionStart() async -> NEVPNStatus {
+        let interval: UInt64 = 300_000_000
+        let attempts = 10
+
+        for _ in 0..<attempts {
+            let currentStatus = manager?.connection.status ?? status
+            status = currentStatus
+            connectedDate = manager?.connection.connectedDate
+            if [.connecting, .connected, .reasserting].contains(currentStatus) {
+                return currentStatus
+            }
+            try? await Task.sleep(nanoseconds: interval)
+        }
+
+        let finalStatus = manager?.connection.status ?? status
+        status = finalStatus
+        connectedDate = manager?.connection.connectedDate
+        return finalStatus
     }
     
     func disconnect() async {
