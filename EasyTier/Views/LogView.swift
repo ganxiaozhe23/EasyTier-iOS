@@ -33,6 +33,21 @@ struct LogView<Manager: NetworkExtensionManagerProtocol>: View {
     var body: some View {
         AdaptiveNavigationRoot {
             VStack(alignment: .leading) {
+                if let warning = foreignNetworkWarning {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text(warning)
+                            .font(.footnote)
+                            .foregroundColor(.primary)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(10)
+                    .background(Color.orange.opacity(0.14))
+                    .cornerRadius(8)
+                    .padding([.horizontal, .top])
+                }
+
                 // Log Content
                 ScrollView {
                     ScrollViewReader { proxy in
@@ -204,6 +219,27 @@ struct LogView<Manager: NetworkExtensionManagerProtocol>: View {
         @unknown default:
             return true
         }
+    }
+
+    private var foreignNetworkWarning: String? {
+        guard tailer.logContent.contains(where: { $0.text.contains("foreign_network_client") }) else {
+            return nil
+        }
+
+        if let networkName = tailer.logContent.reversed().compactMap({ firstNetworkName(in: $0.text) }).first {
+            return "Network name or password does not match the remote peer. Remote network: \(networkName)."
+        }
+
+        return "Network name or password does not match the remote peer."
+    }
+
+    private func firstNetworkName(in line: String) -> String? {
+        guard let keyRange = line.range(of: "network_name") else { return nil }
+        let tail = line[keyRange.upperBound...]
+        guard let openQuote = tail.firstIndex(of: "\"") else { return nil }
+        let valueStart = tail.index(after: openQuote)
+        guard let closeQuote = tail[valueStart...].firstIndex(of: "\"") else { return nil }
+        return String(tail[valueStart..<closeQuote])
     }
 }
 

@@ -305,6 +305,7 @@ struct DashboardView<Manager: NetworkExtensionManagerProtocol>: View {
                                 await manager.disconnect()
                             } else {
                                 do {
+                                    repairCurrentProfileForKnownRemote()
                                     let options = try NetworkExtensionManager.generateOptions(currentProfile)
                                     try NetworkExtensionManager.saveOptions(options)
                                     try await manager.connect()
@@ -338,6 +339,7 @@ struct DashboardView<Manager: NetworkExtensionManagerProtocol>: View {
                 if !hasSelectedProfile,
                    let lastSelected {
                     await loadProfile(lastSelected)
+                    repairCurrentProfileForKnownRemote()
                     do {
                         let options = try NetworkExtensionManager.generateOptions(currentProfile)
                         try NetworkExtensionManager.saveOptions(options)
@@ -492,7 +494,15 @@ struct DashboardView<Manager: NetworkExtensionManagerProtocol>: View {
         if saveOptions,
            let session = selectedSession.session {
             do {
-                let options = try NetworkExtensionManager.generateOptions(session.document.profile)
+                var profile = session.document.profile
+                if profile.repairKnownRemoteIdentityIfNeeded() {
+                    session.document.profile = profile
+                    currentProfile = profile
+                    NetworkExtensionManager.appendHostDiagnostic(
+                        "profile repaired for \(EasyTierRemoteBootstrap.host):\(EasyTierRemoteBootstrap.port)"
+                    )
+                }
+                let options = try NetworkExtensionManager.generateOptions(profile)
                 try NetworkExtensionManager.saveOptions(options)
             } catch {
                 dashboardLogger.error("save options failed: \(error)")
@@ -512,6 +522,15 @@ struct DashboardView<Manager: NetworkExtensionManagerProtocol>: View {
                 }
             }
         }
+    }
+
+    @MainActor
+    private func repairCurrentProfileForKnownRemote() {
+        guard currentProfile.repairKnownRemoteIdentityIfNeeded() else { return }
+        selectedSession.session?.document.profile = currentProfile
+        NetworkExtensionManager.appendHostDiagnostic(
+            "profile repaired for \(EasyTierRemoteBootstrap.host):\(EasyTierRemoteBootstrap.port)"
+        )
     }
 
     private func importConfig(from url: URL) {

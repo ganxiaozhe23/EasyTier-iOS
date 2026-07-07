@@ -222,7 +222,13 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
     
     static func generateOptions(_ profile: NetworkProfile) throws -> EasyTierOptions {
         var options = EasyTierOptions()
-        var config = profile.toConfig()
+        var resolvedProfile = profile
+        if resolvedProfile.repairKnownRemoteIdentityIfNeeded() {
+            appendHostDiagnostic(
+                "config repaired for \(EasyTierRemoteBootstrap.host):\(EasyTierRemoteBootstrap.port): network_name=\(EasyTierRemoteBootstrap.networkName), network_secret=<empty>"
+            )
+        }
+        var config = resolvedProfile.toConfig()
         if config.hostname == nil && UserDefaults.standard.bool(forKey: "useRealDeviceNameAsDefault") {
 #if os(iOS)
             config.hostname = UIDevice.current.name

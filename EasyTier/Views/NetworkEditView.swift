@@ -80,9 +80,9 @@ struct NetworkEditView: View {
             Section("network") {
                 AdaptiveLabeledContent("network_name") {
                     TextField(
-                        "easytier",
+                        EasyTierRemoteBootstrap.networkName,
                         text: $profile.networkName,
-                        prompt: Text("easytier")
+                        prompt: Text(EasyTierRemoteBootstrap.networkName)
                     )
                         .labelsHidden()
                         .multilineTextAlignment(.trailing)

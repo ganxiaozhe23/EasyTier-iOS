@@ -1,6 +1,30 @@
 import Foundation
 import SwiftUI
 
+nonisolated enum EasyTierRemoteBootstrap {
+    static let host = "20.41.99.73"
+    static let port = 11010
+    static let networkName = "private-p2p-4ceef9c9"
+    static let networkSecret = ""
+    static let peerURLStrings = [
+        "tcp://20.41.99.73:11010",
+        "udp://20.41.99.73:11010"
+    ]
+
+    static func isBootstrapPeer(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        if let url = URL(string: trimmed),
+           url.host == host,
+           url.port == port {
+            return true
+        }
+
+        return trimmed.contains("\(host):\(port)")
+    }
+}
+
 struct BoolFlag: Identifiable {
     let id = UUID()
     let keyPath: WritableKeyPath<NetworkProfile, Bool>
@@ -57,13 +81,13 @@ nonisolated struct NetworkProfile: Identifiable, Equatable {
     }
     
     var id: UUID
-    var networkName: String = "easytier"
+    var networkName: String = EasyTierRemoteBootstrap.networkName
     var dhcp: Bool = true
     var virtualIPv4: CIDR = CIDR(ip: "10.126.126.1", length: "24")
     var hostname: String = ""
-    var networkSecret: String = ""
+    var networkSecret: String = EasyTierRemoteBootstrap.networkSecret
 
-    var peerURLs: [TextItem] = []
+    var peerURLs: [TextItem] = EasyTierRemoteBootstrap.peerURLStrings.map { TextItem($0) }
 
     var proxyCIDRs: [ProxyCIDR] = []
 
@@ -126,6 +150,24 @@ nonisolated struct NetworkProfile: Identifiable, Equatable {
 
     init(id: UUID = UUID()) {
         self.id = id
+    }
+
+    var usesKnownRemoteBootstrapPeer: Bool {
+        peerURLs.contains { EasyTierRemoteBootstrap.isBootstrapPeer($0.text) }
+    }
+
+    mutating func repairKnownRemoteIdentityIfNeeded() -> Bool {
+        guard usesKnownRemoteBootstrapPeer else { return false }
+
+        let needsRepair =
+            networkName != EasyTierRemoteBootstrap.networkName ||
+            networkSecret != EasyTierRemoteBootstrap.networkSecret
+
+        guard needsRepair else { return false }
+
+        networkName = EasyTierRemoteBootstrap.networkName
+        networkSecret = EasyTierRemoteBootstrap.networkSecret
+        return true
     }
     
     init(from config: NetworkConfig) {
