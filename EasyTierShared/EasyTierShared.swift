@@ -7,14 +7,62 @@ public let APP_GROUP_ID: String = "group.site.yinmo.easytier"
 public let ICLOUD_CONTAINER_ID: String = "iCloud.site.yinmo.easytier"
 public let LOG_FILENAME: String = "easytier.log"
 public let HOST_DIAGNOSTIC_LOG_FILENAME: String = "easytier-host.log"
+public let VPN_CONFIG_KEY: String = "VPNConfig"
+public let VPN_CONFIG_FILENAME: String = "vpn-config.json"
+
+public enum SharedVPNConfigStoreError: LocalizedError {
+    case appGroupUnavailable
+    case providerSessionUnavailable
+
+    public var errorDescription: String? {
+        switch self {
+        case .appGroupUnavailable:
+            return "App Group container is unavailable."
+        case .providerSessionUnavailable:
+            return "VPN provider session is unavailable."
+        }
+    }
+}
+
+public func sharedAppGroupContainerURL() throws -> URL {
+    guard let containerURL = FileManager.default.containerURL(
+        forSecurityApplicationGroupIdentifier: APP_GROUP_ID
+    ) else {
+        throw SharedVPNConfigStoreError.appGroupUnavailable
+    }
+    return containerURL
+}
+
+public func sharedVPNConfigFileURL() throws -> URL {
+    try sharedAppGroupContainerURL().appendingPathComponent(VPN_CONFIG_FILENAME)
+}
+
+public func saveSharedVPNConfigData(_ data: Data) throws {
+    let url = try sharedVPNConfigFileURL()
+    try data.write(to: url, options: .atomic)
+}
+
+public func loadSharedVPNConfigDataFromFile() throws -> Data? {
+    let url = try sharedVPNConfigFileURL()
+    guard FileManager.default.fileExists(atPath: url.path) else {
+        return nil
+    }
+    return try Data(contentsOf: url)
+}
+
+public func loadSharedVPNConfigDataFromUserDefaults() -> Data? {
+    UserDefaults(suiteName: APP_GROUP_ID)?.data(forKey: VPN_CONFIG_KEY)
+}
+
+public func tunnelStartOptions(configData: Data) -> [String: NSObject] {
+    [VPN_CONFIG_KEY: configData as NSData]
+}
 
 public func appendSharedDiagnostic(_ message: String, component: String) {
     let timestamp = ISO8601DateFormatter().string(from: Date())
     let line = "[\(timestamp)] [\(component)] \(message)\n"
 
-    guard let containerURL = FileManager.default.containerURL(
-        forSecurityApplicationGroupIdentifier: APP_GROUP_ID
-    ) else {
+    guard let containerURL = try? sharedAppGroupContainerURL() else {
         return
     }
 
@@ -190,7 +238,7 @@ public enum ProviderCommand: String, Codable, CaseIterable {
     case lastNetworkSettings = "last_network_settings"
 }
 
-public func connectWithManager(_ manager: NETunnelProviderManager, logger: Logger? = nil, completionHandler: (@Sendable ((any Error)?) -> Void)? = nil) {
+public func connectWithManager(_ manager: NETunnelProviderManager, configData: Data, logger: Logger? = nil, completionHandler: (@Sendable ((any Error)?) -> Void)? = nil) {
     applyNetworkPreferences(to: manager, logger: logger)
     manager.saveToPreferences() { error in
         if let error {
@@ -205,7 +253,11 @@ public func connectWithManager(_ manager: NETunnelProviderManager, logger: Logge
             }
 
             do {
-                try manager.connection.startVPNTunnel()
+                guard let session = manager.connection as? NETunnelProviderSession else {
+                    completionHandler?(SharedVPNConfigStoreError.providerSessionUnavailable)
+                    return
+                }
+                try session.startTunnel(options: tunnelStartOptions(configData: configData))
             } catch {
                 completionHandler?(error)
                 return

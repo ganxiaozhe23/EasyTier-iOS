@@ -41,6 +41,26 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         // Wake the host app via Darwin notification
         postDarwinNotification("\(APP_BUNDLE_ID).error")
     }
+
+    private func loadVPNConfigData(startOptions: [String: NSObject]?) -> (data: Data, source: String)? {
+        if let data = startOptions?[VPN_CONFIG_KEY] as? Data {
+            return (data, "start options")
+        }
+        if let nsData = startOptions?[VPN_CONFIG_KEY] as? NSData {
+            return (nsData as Data, "start options")
+        }
+        do {
+            if let data = try loadSharedVPNConfigDataFromFile() {
+                return (data, "app group file")
+            }
+        } catch {
+            appendBootstrapDiagnostic("startTunnel app group file read failed: \(error.localizedDescription)")
+        }
+        if let data = loadSharedVPNConfigDataFromUserDefaults() {
+            return (data, "user defaults")
+        }
+        return nil
+    }
     
     private func registerRunningInfoCallback() {
         let infoChangedCallback: @convention(c) () -> Void = {
@@ -201,23 +221,23 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         logger.warning("startTunnel(): triggered")
         PacketTunnelProvider.current = self
 
-        guard let defaults = UserDefaults(suiteName: APP_GROUP_ID) else {
+        if UserDefaults(suiteName: APP_GROUP_ID) == nil {
             logger.error("startTunnel() App Group defaults unavailable")
-            appendBootstrapDiagnostic("startTunnel failed: App Group defaults unavailable")
-            self.notifyHostAppError("App Group defaults unavailable")
-            completionHandler("App Group defaults unavailable")
-            return
+            appendBootstrapDiagnostic("startTunnel App Group defaults unavailable")
+        } else {
+            appendBootstrapDiagnostic("startTunnel App Group defaults available")
         }
-        appendBootstrapDiagnostic("startTunnel App Group defaults available")
 
-        guard let configData = defaults.data(forKey: "VPNConfig") else {
-            logger.error("startTunnel() options is nil")
-            appendBootstrapDiagnostic("startTunnel failed: VPNConfig missing")
-            self.notifyHostAppError("options is nil")
-            completionHandler("options is nil")
+        guard let loadedConfig = loadVPNConfigData(startOptions: options) else {
+            let message = "VPNConfig missing from start options, app group file, and user defaults"
+            logger.error("startTunnel() \(message, privacy: .public)")
+            appendBootstrapDiagnostic("startTunnel failed: \(message)")
+            self.notifyHostAppError(message)
+            completionHandler(message)
             return
         }
-        appendBootstrapDiagnostic("startTunnel VPNConfig found: bytes=\(configData.count)")
+        let configData = loadedConfig.data
+        appendBootstrapDiagnostic("startTunnel VPNConfig found from \(loadedConfig.source): bytes=\(configData.count)")
 
         let options: EasyTierOptions
         do {

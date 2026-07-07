@@ -273,8 +273,9 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
         return options
     }
     
-    static func saveOptions(_ options: EasyTierOptions) throws {
-        // Save config to App Group for Widget use
+    @discardableResult
+    static func saveOptions(_ options: EasyTierOptions) throws -> Data {
+        // Save config to App Group for Widget use and tunnel startup.
         guard let defaults = UserDefaults(suiteName: APP_GROUP_ID) else {
             appendHostDiagnostic("save options failed: App Group unavailable")
             throw NEManagerError.appGroupUnavailable
@@ -282,13 +283,38 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
 
         let configData = try JSONEncoder().encode(options)
         logger.debug("save options: \(configData.string ?? "nil")")
-        defaults.set(configData, forKey: "VPNConfig")
+        do {
+            try saveSharedVPNConfigData(configData)
+            guard let fileData = try loadSharedVPNConfigDataFromFile(),
+                  fileData == configData else {
+                appendHostDiagnostic("save options failed: app group file read-back verification failed")
+                throw NEManagerError.saveOptionsFailed
+            }
+        } catch {
+            appendHostDiagnostic("save options failed: app group file write failed: \(error.localizedDescription)")
+            throw error
+        }
+        defaults.set(configData, forKey: VPN_CONFIG_KEY)
         defaults.synchronize()
-        guard defaults.data(forKey: "VPNConfig") == configData else {
+        guard defaults.data(forKey: VPN_CONFIG_KEY) == configData else {
             appendHostDiagnostic("save options failed: read-back verification failed")
             throw NEManagerError.saveOptionsFailed
         }
-        appendHostDiagnostic("save options succeeded: bytes=\(configData.count), logLevel=\(options.logLevel.rawValue)")
+        appendHostDiagnostic("save options succeeded: bytes=\(configData.count), logLevel=\(options.logLevel.rawValue), file=\(VPN_CONFIG_FILENAME)")
+        return configData
+    }
+
+    static func loadSavedOptionsDataForStart() throws -> Data {
+        if let configData = try loadSharedVPNConfigDataFromFile() {
+            appendHostDiagnostic("connect loaded VPNConfig from app group file: bytes=\(configData.count)")
+            return configData
+        }
+        if let configData = loadSharedVPNConfigDataFromUserDefaults() {
+            appendHostDiagnostic("connect loaded VPNConfig from user defaults: bytes=\(configData.count)")
+            return configData
+        }
+        appendHostDiagnostic("connect failed: VPNConfig missing before start")
+        throw NEManagerError.saveOptionsFailed
     }
     
     func connect() async throws {
@@ -315,9 +341,10 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
             throw NEManagerError.providerUnavailable
         }
 
+        let configData = try Self.loadSavedOptionsDataForStart()
         do {
             let _: Void = try await withCheckedThrowingContinuation { continuation in
-                connectWithManager(manager, logger: Self.logger) { error in
+                connectWithManager(manager, configData: configData, logger: Self.logger) { error in
                     if let error {
                         continuation.resume(throwing: error)
                     } else {
@@ -327,11 +354,11 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
             }
         } catch {
             Self.logger.error("connect() start vpn tunnel failed: \(String(describing: error))")
-            Self.appendHostDiagnostic("connect failed: startVPNTunnel error=\(error.localizedDescription), status=\(Self.describeStatus(self.status))")
+            Self.appendHostDiagnostic("connect failed: startTunnel error=\(error.localizedDescription), status=\(Self.describeStatus(self.status))")
             throw error
         }
         Self.logger.info("connect() started")
-        Self.appendHostDiagnostic("connect startVPNTunnel returned: status=\(Self.describeStatus(status))")
+        Self.appendHostDiagnostic("connect startTunnel returned: status=\(Self.describeStatus(status))")
         let observedStatus = await waitForConnectionStart()
         Self.appendHostDiagnostic("connect observed after wait: status=\(Self.describeStatus(observedStatus))")
         if [.invalid, .disconnected].contains(observedStatus) {
