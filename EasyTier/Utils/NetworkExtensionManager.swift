@@ -225,7 +225,7 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
         var resolvedProfile = profile
         if resolvedProfile.repairKnownRemoteIdentityIfNeeded() {
             appendHostDiagnostic(
-                "config repaired for \(EasyTierRemoteBootstrap.host):\(EasyTierRemoteBootstrap.port): network_name=\(EasyTierRemoteBootstrap.networkName), network_secret=<empty>"
+                "config repaired for \(EasyTierRemoteBootstrap.host):\(EasyTierRemoteBootstrap.port): network_name=\(EasyTierRemoteBootstrap.networkName), network_secret=<preserved>"
             )
         }
         var config = resolvedProfile.toConfig()

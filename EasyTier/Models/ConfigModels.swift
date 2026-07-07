@@ -237,7 +237,11 @@ nonisolated struct NetworkConfig: Codable {
             self.hostname = nil
         }
         self.dhcp = profile.dhcp
-        self.networkIdentity = NetworkIdentity(networkName: profile.networkName, networkSecret: profile.networkSecret)
+        let networkSecret = profile.networkSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.networkIdentity = NetworkIdentity(
+            networkName: profile.networkName,
+            networkSecret: networkSecret.isEmpty ? nil : networkSecret
+        )
         
         if !profile.dhcp {
             self.ipv4 = profile.virtualIPv4.cidrString

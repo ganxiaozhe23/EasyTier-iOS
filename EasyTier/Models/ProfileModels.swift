@@ -160,13 +160,11 @@ nonisolated struct NetworkProfile: Identifiable, Equatable {
         guard usesKnownRemoteBootstrapPeer else { return false }
 
         let needsRepair =
-            networkName != EasyTierRemoteBootstrap.networkName ||
-            networkSecret != EasyTierRemoteBootstrap.networkSecret
+            networkName != EasyTierRemoteBootstrap.networkName
 
         guard needsRepair else { return false }
 
         networkName = EasyTierRemoteBootstrap.networkName
-        networkSecret = EasyTierRemoteBootstrap.networkSecret
         return true
     }
     
