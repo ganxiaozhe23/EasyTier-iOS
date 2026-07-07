@@ -45,6 +45,10 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
         case invalidResponse
         case clearFailed(String)
         case exportFailed(String)
+        case busy(NEVPNStatus)
+        case managerLoading
+        case appGroupUnavailable
+        case saveOptionsFailed
 
         var errorDescription: String? {
             switch self {
@@ -56,6 +60,14 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
                 return message
             case .exportFailed(let message):
                 return message
+            case .busy(let status):
+                return "VPN is already \(String(describing: status))."
+            case .managerLoading:
+                return "VPN manager is still loading. Please try again."
+            case .appGroupUnavailable:
+                return "App Group container is unavailable. Reinstall the IPA with TrollStore and try again."
+            case .saveOptionsFailed:
+                return "Failed to save VPN configuration."
             }
         }
     }
@@ -71,6 +83,33 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
     
     init() {
         status = .invalid
+    }
+
+    static func appendHostDiagnostic(_ message: String) {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let line = "[\(timestamp)] [APP] \(message)\n"
+
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: APP_GROUP_ID
+        ) else {
+            logger.error("appendHostDiagnostic() failed: App Group container not found")
+            return
+        }
+
+        let url = containerURL.appendingPathComponent(HOST_DIAGNOSTIC_LOG_FILENAME)
+        guard let data = line.data(using: .utf8) else { return }
+
+        do {
+            if !FileManager.default.fileExists(atPath: url.path) {
+                FileManager.default.createFile(atPath: url.path, contents: nil)
+            }
+            let handle = try FileHandle(forWritingTo: url)
+            try handle.seekToEnd()
+            handle.write(data)
+            try handle.close()
+        } catch {
+            logger.error("appendHostDiagnostic() failed: \(String(describing: error))")
+        }
     }
 
     private func registerObserver() {
@@ -134,6 +173,7 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
     
     static func install() async throws -> NETunnelProviderManager {
         Self.logger.info("install()")
+        appendHostDiagnostic("install VPN manager")
         let manager = NETunnelProviderManager()
         manager.localizedDescription = "EasyTier"
         let tunnelProtocol = NETunnelProviderProtocol()
@@ -143,9 +183,11 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
         manager.isEnabled = true
         do {
             try await manager.saveToPreferences()
+            appendHostDiagnostic("install VPN manager saved")
             return manager
         } catch {
             Self.logger.error("install() failed: \(String(describing: error))")
+            appendHostDiagnostic("install VPN manager failed: \(error.localizedDescription)")
             throw error
         }
     }
@@ -217,32 +259,45 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
         return options
     }
     
-    static func saveOptions(_ options: EasyTierOptions) {
+    static func saveOptions(_ options: EasyTierOptions) throws {
         // Save config to App Group for Widget use
-        let defaults = UserDefaults(suiteName: APP_GROUP_ID)
-        if let configData = try? JSONEncoder().encode(options) {
-            logger.debug("save options: \(configData.string ?? "nil")")
-            defaults?.set(configData, forKey: "VPNConfig")
-            defaults?.synchronize()
+        guard let defaults = UserDefaults(suiteName: APP_GROUP_ID) else {
+            appendHostDiagnostic("save options failed: App Group unavailable")
+            throw NEManagerError.appGroupUnavailable
         }
+
+        let configData = try JSONEncoder().encode(options)
+        logger.debug("save options: \(configData.string ?? "nil")")
+        defaults.set(configData, forKey: "VPNConfig")
+        defaults.synchronize()
+        guard defaults.data(forKey: "VPNConfig") == configData else {
+            appendHostDiagnostic("save options failed: read-back verification failed")
+            throw NEManagerError.saveOptionsFailed
+        }
+        appendHostDiagnostic("save options succeeded: bytes=\(configData.count), logLevel=\(options.logLevel.rawValue)")
     }
     
     func connect() async throws {
+        Self.appendHostDiagnostic("connect requested: status=\(String(describing: status)), isLoading=\(isLoading)")
         guard ![.connecting, .connected, .disconnecting, .reasserting].contains(status) else {
             Self.logger.warning("connect() failed: in \(String(describing: self.status)) status")
-            return
+            Self.appendHostDiagnostic("connect rejected: busy status=\(String(describing: status))")
+            throw NEManagerError.busy(status)
         }
         guard !isLoading else {
             Self.logger.warning("connect() failed: not loaded")
-            return
+            Self.appendHostDiagnostic("connect rejected: manager still loading")
+            throw NEManagerError.managerLoading
         }
         if status == .invalid {
+            Self.appendHostDiagnostic("connect installing VPN manager because status is invalid")
             _ = try await NetworkExtensionManager.install()
             try await load()
         }
         guard let manager else {
             Self.logger.error("connect() failed: manager is nil")
-            return
+            Self.appendHostDiagnostic("connect failed: manager is nil after load")
+            throw NEManagerError.providerUnavailable
         }
 
         do {
@@ -257,9 +312,17 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
             }
         } catch {
             Self.logger.error("connect() start vpn tunnel failed: \(String(describing: error))")
+            Self.appendHostDiagnostic("connect failed: startVPNTunnel error=\(error.localizedDescription), status=\(String(describing: self.status))")
             throw error
         }
         Self.logger.info("connect() started")
+        Self.appendHostDiagnostic("connect started: status=\(String(describing: status))")
+        do {
+            try await load()
+            Self.appendHostDiagnostic("connect post-load status=\(String(describing: status))")
+        } catch {
+            Self.appendHostDiagnostic("connect post-load failed: \(error.localizedDescription)")
+        }
         // Immediately sync widget state after initiating connection
         syncWidgetState()
     }

@@ -75,9 +75,24 @@ struct ConnectIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         let manager = NetworkExtensionManager()
-        try await manager.load()
-        try await manager.connect()
+        do {
+            try await saveSelectedNetworkOptions()
+            try await manager.load()
+            try await manager.connect()
+        } catch {
+            NetworkExtensionManager.appendHostDiagnostic("shortcut connect failed: \(error.localizedDescription)")
+            throw IntentError.connectionFailed(error.localizedDescription)
+        }
         return .result()
+    }
+
+    @MainActor
+    private func saveSelectedNetworkOptions() async throws {
+        guard let network else { return }
+
+        let session = try await ProfileStore.openSession(named: network.id)
+        let options = try NetworkExtensionManager.generateOptions(session.document.profile)
+        try NetworkExtensionManager.saveOptions(options)
     }
 }
 
@@ -122,9 +137,24 @@ struct ToggleConnectIntent: AppIntent {
             await manager.disconnect()
             return .result()
         } else {
-            try await manager.connect()
+            do {
+                try await saveSelectedNetworkOptions()
+                try await manager.connect()
+            } catch {
+                NetworkExtensionManager.appendHostDiagnostic("shortcut toggle connect failed: \(error.localizedDescription)")
+                throw IntentError.connectionFailed(error.localizedDescription)
+            }
             return .result()
         }
+    }
+
+    @MainActor
+    private func saveSelectedNetworkOptions() async throws {
+        guard let network else { return }
+
+        let session = try await ProfileStore.openSession(named: network.id)
+        let options = try NetworkExtensionManager.generateOptions(session.document.profile)
+        try NetworkExtensionManager.saveOptions(options)
     }
 }
 

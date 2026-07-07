@@ -5,6 +5,7 @@ public let APP_BUNDLE_ID: String = "site.yinmo.easytier"
 public let APP_GROUP_ID: String = "group.site.yinmo.easytier"
 public let ICLOUD_CONTAINER_ID: String = "iCloud.site.yinmo.easytier"
 public let LOG_FILENAME: String = "easytier.log"
+public let HOST_DIAGNOSTIC_LOG_FILENAME: String = "easytier-host.log"
 
 public enum LogLevel: String, Codable, CaseIterable {
     case trace = "trace"
@@ -136,14 +137,7 @@ public struct TunnelNetworkSettingsSnapshot: Codable, Equatable {
     }
 }
 
-public enum ProviderCommand: String, Codable, CaseIterable {
-    case clearLog = "clear_log"
-    case exportOSLog = "export_oslog"
-    case runningInfo = "running_info"
-    case lastNetworkSettings = "last_network_settings"
-}
-
-public func connectWithManager(_ manager: NETunnelProviderManager, logger: Logger? = nil, completionHandler: (@Sendable ((any Error)?) -> Void)? = nil) {
+private func applyNetworkPreferences(to manager: NETunnelProviderManager, logger: Logger?) {
     manager.isEnabled = true
     if let defaults = UserDefaults(suiteName: APP_GROUP_ID) {
         manager.protocolConfiguration?.includeAllNetworks = defaults.bool(forKey: "includeAllNetworks")
@@ -160,16 +154,36 @@ public func connectWithManager(_ manager: NETunnelProviderManager, logger: Logge
             logger.debug("connect with protocol configuration: \(manager.protocolConfiguration)")
         }
     }
+}
+
+public enum ProviderCommand: String, Codable, CaseIterable {
+    case clearLog = "clear_log"
+    case exportOSLog = "export_oslog"
+    case runningInfo = "running_info"
+    case lastNetworkSettings = "last_network_settings"
+}
+
+public func connectWithManager(_ manager: NETunnelProviderManager, logger: Logger? = nil, completionHandler: (@Sendable ((any Error)?) -> Void)? = nil) {
+    applyNetworkPreferences(to: manager, logger: logger)
     manager.saveToPreferences() { error in
         if let error {
             completionHandler?(error)
-        } else {
+            return
+        }
+
+        manager.loadFromPreferences { error in
+            if let error {
+                completionHandler?(error)
+                return
+            }
+
             do {
                 try manager.connection.startVPNTunnel()
             } catch {
                 completionHandler?(error)
+                return
             }
+            completionHandler?(nil)
         }
-        completionHandler?(nil)
     }
 }

@@ -2,10 +2,20 @@ import SwiftUI
 import NetworkExtension
 import EasyTierShared
 
-private func logFileURL() -> URL? {
-    FileManager.default
-        .containerURL(forSecurityApplicationGroupIdentifier: APP_GROUP_ID)?
-        .appendingPathComponent(LOG_FILENAME)
+private let visibleLogFilenames = [HOST_DIAGNOSTIC_LOG_FILENAME, LOG_FILENAME]
+
+private enum LogExportError: LocalizedError {
+    case containerUnavailable
+    case emptyLogs
+
+    var errorDescription: String? {
+        switch self {
+        case .containerUnavailable:
+            return "Log container is unavailable."
+        case .emptyLogs:
+            return "Log file is empty."
+        }
+    }
 }
 
 struct LogView<Manager: NetworkExtensionManagerProtocol>: View {
@@ -71,7 +81,7 @@ struct LogView<Manager: NetworkExtensionManagerProtocol>: View {
                         if tailer.isWatching {
                             tailer.stop()
                         } else {
-                            tailer.startWatching(appGroupID: APP_GROUP_ID, filename: LOG_FILENAME, fromStart: false)
+                            tailer.startWatching(appGroupID: APP_GROUP_ID, filenames: visibleLogFilenames, fromStart: false)
                         }
                     }) {
                         Image(systemName: tailer.isWatching ? "pause" : "play")
@@ -81,7 +91,7 @@ struct LogView<Manager: NetworkExtensionManagerProtocol>: View {
         }
         .onAppear {
             if !tailer.isWatching {
-                tailer.startWatching(appGroupID: APP_GROUP_ID, filename: LOG_FILENAME, fromStart: true)
+                tailer.startWatching(appGroupID: APP_GROUP_ID, filenames: visibleLogFilenames, fromStart: true)
             }
         }
         .onDisappear {
@@ -92,7 +102,7 @@ struct LogView<Manager: NetworkExtensionManagerProtocol>: View {
             switch newPhase {
             case .active:
                 if wasWatchingBeforeBackground {
-                    tailer.startWatching(appGroupID: APP_GROUP_ID, filename: LOG_FILENAME, fromStart: false)
+                    tailer.startWatching(appGroupID: APP_GROUP_ID, filenames: visibleLogFilenames, fromStart: false)
                     wasWatchingBeforeBackground = false
                 }
             case .inactive, .background:
@@ -118,12 +128,11 @@ struct LogView<Manager: NetworkExtensionManagerProtocol>: View {
     }
 
     private func presentExport() {
-        guard let url = logFileURL() else {
-            exportErrorMessage = .init("Log file not found.")
-            return
-        }
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            exportErrorMessage = .init("Log file not found.")
+        let url: URL
+        do {
+            url = try makeCombinedLogExport()
+        } catch {
+            exportErrorMessage = .init(error.localizedDescription)
             return
         }
 #if os(iOS)
@@ -138,6 +147,42 @@ struct LogView<Manager: NetworkExtensionManagerProtocol>: View {
 #endif
     }
 
+    private func makeCombinedLogExport() throws -> URL {
+        guard let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: APP_GROUP_ID
+        ) else {
+            throw LogExportError.containerUnavailable
+        }
+
+        var output = ""
+        for filename in visibleLogFilenames {
+            let url = containerURL.appendingPathComponent(filename)
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                continue
+            }
+
+            let content = try String(contentsOf: url, encoding: .utf8)
+            guard !content.isEmpty else {
+                continue
+            }
+
+            output.append("===== \(filename) =====\n")
+            output.append(content)
+            if !output.hasSuffix("\n") {
+                output.append("\n")
+            }
+        }
+
+        guard !output.isEmpty else {
+            throw LogExportError.emptyLogs
+        }
+
+        let filename = "EasyTier-logs-\(Int(Date().timeIntervalSince1970)).log"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+        try output.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
     private func clearLog() async {
         let providerClear: (() async throws -> Void)?
         if shouldUseProviderClear {
@@ -145,7 +190,7 @@ struct LogView<Manager: NetworkExtensionManagerProtocol>: View {
         } else {
             providerClear = nil
         }
-        await tailer.clear(appGroupID: APP_GROUP_ID, filename: LOG_FILENAME, providerClear: providerClear)
+        await tailer.clear(appGroupID: APP_GROUP_ID, filenames: visibleLogFilenames, providerClear: providerClear)
     }
 
     private var shouldUseProviderClear: Bool {

@@ -306,7 +306,7 @@ struct DashboardView<Manager: NetworkExtensionManagerProtocol>: View {
                             } else {
                                 do {
                                     let options = try NetworkExtensionManager.generateOptions(currentProfile)
-                                    NetworkExtensionManager.saveOptions(options)
+                                    try NetworkExtensionManager.saveOptions(options)
                                     try await manager.connect()
                                 } catch {
                                     dashboardLogger.error("connect failed: \(error)")
@@ -338,8 +338,12 @@ struct DashboardView<Manager: NetworkExtensionManagerProtocol>: View {
                 if !hasSelectedProfile,
                    let lastSelected {
                     await loadProfile(lastSelected)
-                    if let options = try? NetworkExtensionManager.generateOptions(currentProfile) {
-                        NetworkExtensionManager.saveOptions(options)
+                    do {
+                        let options = try NetworkExtensionManager.generateOptions(currentProfile)
+                        try NetworkExtensionManager.saveOptions(options)
+                    } catch {
+                        dashboardLogger.error("save options on appear failed: \(error)")
+                        NetworkExtensionManager.appendHostDiagnostic("save options on appear failed: \(error.localizedDescription)")
                     }
                 }
             }
@@ -486,9 +490,14 @@ struct DashboardView<Manager: NetworkExtensionManagerProtocol>: View {
     @MainActor
     private func saveProfile(saveOptions: Bool = true) async {
         if saveOptions,
-           let session = selectedSession.session,
-           let options = try? NetworkExtensionManager.generateOptions(session.document.profile) {
-            NetworkExtensionManager.saveOptions(options)
+           let session = selectedSession.session {
+            do {
+                let options = try NetworkExtensionManager.generateOptions(session.document.profile)
+                try NetworkExtensionManager.saveOptions(options)
+            } catch {
+                dashboardLogger.error("save options failed: \(error)")
+                errorMessage = .init(error.localizedDescription)
+            }
         }
         if let session = selectedSession.session {
             do {

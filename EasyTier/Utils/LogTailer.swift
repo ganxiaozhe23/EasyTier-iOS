@@ -17,66 +17,84 @@ class LogTailer: ObservableObject {
     
     @AppStorage("logPreservedLines") var logPreservedLines: Int = 1000
     
-    private var fileHandle: FileHandle?
-    private var source: DispatchSourceFileSystemObject?
+    private var fileHandles: [String: FileHandle] = [:]
+    private var sources: [String: DispatchSourceFileSystemObject] = [:]
     
     /// Starts watching a specific file in an App Group
     func startWatching(appGroupID: String, filename: String, fromStart: Bool) {
+        startWatching(appGroupID: appGroupID, filenames: [filename], fromStart: fromStart)
+    }
+
+    /// Starts watching files in an App Group and renders them as one stream.
+    func startWatching(appGroupID: String, filenames: [String], fromStart: Bool) {
+        stop()
+
         guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
             self.errorMessage = .init("Invalid App Group ID.")
             return
         }
-        
-        let fileURL = containerURL.appendingPathComponent(filename)
-        
-        // Ensure file exists to avoid crash when opening; create if missing
-        if !FileManager.default.fileExists(atPath: fileURL.path) {
-            try? "".write(to: fileURL, atomically: true, encoding: .utf8)
-        }
-        
-        do {
-            let handle = try FileHandle(forReadingFrom: fileURL)
-            self.fileHandle = handle
-            
-            // Initial Read
-            if fromStart {
-                let data = handle.readDataToEndOfFile()
-                if let str = String(data: data, encoding: .utf8) {
-                    updateLog(str, replaceAll: true)
+
+        var initialLogs = ""
+
+        for filename in filenames {
+            let fileURL = containerURL.appendingPathComponent(filename)
+
+            // Ensure file exists to avoid crash when opening; create if missing
+            if !FileManager.default.fileExists(atPath: fileURL.path) {
+                try? "".write(to: fileURL, atomically: true, encoding: .utf8)
+            }
+
+            do {
+                let handle = try FileHandle(forReadingFrom: fileURL)
+                self.fileHandles[filename] = handle
+
+                // Initial Read
+                if fromStart {
+                    let data = handle.readDataToEndOfFile()
+                    if let str = String(data: data, encoding: .utf8), !str.isEmpty {
+                        initialLogs.append(str)
+                        if !initialLogs.hasSuffix("\n") {
+                            initialLogs.append("\n")
+                        }
+                    }
+                } else {
+                    handle.seekToEndOfFile()
                 }
-            } else {
-                handle.seekToEndOfFile()
-            }
-            
-            // Setup DispatchSource to watch for writes
-            let fileDescriptor = handle.fileDescriptor
-            let source = DispatchSource.makeFileSystemObjectSource(
-                fileDescriptor: fileDescriptor,
-                eventMask: .write,
-                queue: DispatchQueue.main
-            )
-            
-            source.setEventHandler { [weak self] in
-                self?.readNewData()
-            }
-            
-            source.setCancelHandler {
-                try? handle.close()
-            }
-            
-            source.resume()
-            self.source = source
-            self.isWatching = true
-            
-        } catch {
-            DispatchQueue.main.async {
-                self.errorMessage = .init("Could not open file: \(error.localizedDescription)")
+
+                // Setup DispatchSource to watch for writes
+                let fileDescriptor = handle.fileDescriptor
+                let source = DispatchSource.makeFileSystemObjectSource(
+                    fileDescriptor: fileDescriptor,
+                    eventMask: .write,
+                    queue: DispatchQueue.main
+                )
+
+                source.setEventHandler { [weak self] in
+                    self?.readNewData(filename: filename)
+                }
+
+                source.setCancelHandler {
+                    try? handle.close()
+                }
+
+                source.resume()
+                self.sources[filename] = source
+
+            } catch {
+                DispatchQueue.main.async {
+                    self.errorMessage = .init("Could not open file: \(error.localizedDescription)")
+                }
             }
         }
+
+        if fromStart {
+            updateLog(initialLogs, replaceAll: true)
+        }
+        self.isWatching = !fileHandles.isEmpty
     }
     
-    private func readNewData() {
-        guard let handle = fileHandle else { return }
+    private func readNewData(filename: String) {
+        guard let handle = fileHandles[filename] else { return }
         
         // Read only what has been appended
         let data = handle.readDataToEndOfFile()
@@ -91,9 +109,10 @@ class LogTailer: ObservableObject {
             .split(separator: "\n")
             .suffix(logPreservedLines)
             .map { LogLine(text: String($0)) }
+        let preservedExistingCount = max(logPreservedLines - newLines.count, 0)
         let lines =
             (replaceAll ? [] : self.logContent).suffix(
-                logPreservedLines - newLines.count
+                preservedExistingCount
             ) + newLines
 
         if Thread.isMainThread {
@@ -106,9 +125,9 @@ class LogTailer: ObservableObject {
     }
     
     func stop() {
-        source?.cancel()
-        source = nil
-        fileHandle = nil
+        sources.values.forEach { $0.cancel() }
+        sources = [:]
+        fileHandles = [:]
         isWatching = false
     }
 
@@ -117,15 +136,22 @@ class LogTailer: ObservableObject {
         filename: String,
         providerClear: (() async throws -> Void)? = nil
     ) async {
+        await clear(appGroupID: appGroupID, filenames: [filename], providerClear: providerClear)
+    }
+
+    func clear(
+        appGroupID: String,
+        filenames: [String],
+        providerClear: (() async throws -> Void)? = nil
+    ) async {
         let wasWatching = isWatching
         stop()
 
         do {
             if let providerClear {
                 try await providerClear()
-            } else {
-                try clearLogFile(appGroupID: appGroupID, filename: filename)
             }
+            try filenames.forEach { try clearLogFile(appGroupID: appGroupID, filename: $0) }
 
             logContent = []
         } catch {
@@ -133,7 +159,7 @@ class LogTailer: ObservableObject {
         }
 
         if wasWatching {
-            startWatching(appGroupID: appGroupID, filename: filename, fromStart: true)
+            startWatching(appGroupID: appGroupID, filenames: filenames, fromStart: true)
         }
     }
 
@@ -154,8 +180,8 @@ class LogTailer: ObservableObject {
     }
     
     deinit {
-        source?.cancel()
-        source = nil
-        fileHandle = nil
+        sources.values.forEach { $0.cancel() }
+        sources = [:]
+        fileHandles = [:]
     }
 }
