@@ -105,7 +105,7 @@ class LogTailer: ObservableObject {
     }
     
     private func updateLog(_ logs: String, replaceAll: Bool = false) {
-        let newLines = logs
+        let newLines = redactSensitiveLogText(logs)
             .split(separator: "\n")
             .suffix(logPreservedLines)
             .map { LogLine(text: String($0)) }

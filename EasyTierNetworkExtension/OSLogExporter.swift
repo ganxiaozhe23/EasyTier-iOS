@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import EasyTierShared
 
 enum OSLogExporter {
     private static var dateFormatter: ISO8601DateFormatter {
@@ -26,10 +27,10 @@ enum OSLogExporter {
 
         for entry in entries {
             if let log = entry as? OSLogEntryLog {
-                output.append(format(log))
+                output.append(redactSensitiveLogText(format(log)))
                 output.append("\n")
             } else if let signpost = entry as? OSLogEntrySignpost {
-                output.append(format(signpost))
+                output.append(redactSensitiveLogText(format(signpost)))
                 output.append("\n")
             }
         }

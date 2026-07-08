@@ -58,9 +58,28 @@ public func tunnelStartOptions(configData: Data) -> [String: NSObject] {
     [VPN_CONFIG_KEY: configData as NSData]
 }
 
+public func redactSensitiveLogText(_ text: String) -> String {
+    let replacements: [(String, String)] = [
+        (#"network_secret\s*=\s*"[^"]*""#, #"network_secret = "<redacted>""#),
+        (#"network_secret:\s*Some\("[^"]*"\)"#, #"network_secret: Some("<redacted>")"#),
+        (#""network_secret"\s*:\s*"[^"]*""#, #""network_secret":"<redacted>""#),
+        (#"network_secret_digest:\s*Some\(\[[^\]]*\]\)"#, #"network_secret_digest: Some(<redacted>)"#),
+        (#"network_secret_digest:\s*\[[^\]]*\]"#, #"network_secret_digest: <redacted>"#),
+        (#""network_secret_digest"\s*:\s*\[[^\]]*\]"#, #""network_secret_digest":"<redacted>""#)
+    ]
+
+    return replacements.reduce(text) { current, replacement in
+        current.replacingOccurrences(
+            of: replacement.0,
+            with: replacement.1,
+            options: .regularExpression
+        )
+    }
+}
+
 public func appendSharedDiagnostic(_ message: String, component: String) {
     let timestamp = ISO8601DateFormatter().string(from: Date())
-    let line = "[\(timestamp)] [\(component)] \(message)\n"
+    let line = "[\(timestamp)] [\(component)] \(redactSensitiveLogText(message))\n"
 
     guard let containerURL = try? sharedAppGroupContainerURL() else {
         return

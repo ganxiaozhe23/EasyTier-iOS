@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import NetworkExtension
 import SwiftUI
 #if os(iOS)
 import UIKit
@@ -15,6 +16,7 @@ struct StatusView<Manager: NetworkExtensionManagerProtocol>: View {
     @State var timer = Timer.publish(every: 1.0, on: .main, in: .common)
     @State var timerSubscription: Cancellable?
     @State var status: NetworkStatus?
+    @State var statusFetchError: String?
     
     @State var selectedInfoKind: InfoKind = .peerInfo
     @State var selectedPeerRoute: SelectedPeerRoute?
@@ -119,7 +121,7 @@ struct StatusView<Manager: NetworkExtensionManagerProtocol>: View {
                 localStatus
             }
 
-            if let error = status?.errorMsg {
+            if let error = displayedStatusError {
                 Section("common.error") {
                     HStack {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -163,7 +165,7 @@ struct StatusView<Manager: NetworkExtensionManagerProtocol>: View {
                     localStatus
                 }
 
-                if let error = status?.errorMsg {
+                if let error = displayedStatusError {
                     Section("common.error") {
                         HStack {
                             Image(systemName: "exclamationmark.triangle.fill")
@@ -209,7 +211,7 @@ struct StatusView<Manager: NetworkExtensionManagerProtocol>: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    StatusBadge(status: .init(status?.running))
+                    StatusBadge(status: statusBadgeStatus)
                 }
                 .contentShape(Rectangle())
                 .padding(.horizontal, 4)
@@ -276,9 +278,36 @@ struct StatusView<Manager: NetworkExtensionManagerProtocol>: View {
     }
 
     func refreshStatus() {
-        manager.fetchRunningInfo { info in
-            status = info
+        manager.fetchRunningInfo { result in
+            switch result {
+            case .success(let info):
+                status = info
+                statusFetchError = nil
+            case .failure(let error):
+                statusFetchError = runningInfoFetchErrorMessage(error)
+            }
         }
+    }
+
+    private var displayedStatusError: String? {
+        status?.errorMsg ?? statusFetchError
+    }
+
+    private var statusBadgeStatus: StatusBadge.ActiveStatus {
+        if let running = status?.running {
+            return .init(running)
+        }
+        if statusFetchError != nil && [.connected, .reasserting].contains(manager.status) {
+            return .InfoUnavailable
+        }
+        return .Loading
+    }
+
+    private func runningInfoFetchErrorMessage(_ error: Error) -> String {
+        if [.connected, .reasserting].contains(manager.status) {
+            return "VPN is connected, but running info is unavailable: \(error.localizedDescription)"
+        }
+        return error.localizedDescription
     }
 
     func startTimer() {
@@ -652,7 +681,7 @@ struct StatusBadge: View {
             .red
         case .Running:
             .green
-        case .Loading:
+        case .Loading, .InfoUnavailable:
             .orange
         }
     }
@@ -661,6 +690,7 @@ struct StatusBadge: View {
         case Stopped = "stopped"
         case Running = "running"
         case Loading = "loading"
+        case InfoUnavailable = "running_info_unavailable"
 
         init(_ active: Bool?) {
             if let active {

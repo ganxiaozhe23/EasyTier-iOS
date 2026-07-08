@@ -182,7 +182,7 @@ struct LogView<Manager: NetworkExtensionManagerProtocol>: View {
             }
 
             output.append("===== \(filename) =====\n")
-            output.append(content)
+            output.append(redactSensitiveLogText(content))
             if !output.hasSuffix("\n") {
                 output.append("\n")
             }

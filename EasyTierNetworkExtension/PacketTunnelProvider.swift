@@ -321,14 +321,19 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                     completionHandler(data)
                 }
             case .runningInfo:
+                appendBootstrapDiagnostic("running_info request received")
                 var infoPtr: UnsafePointer<CChar>? = nil
                 var errPtr: UnsafePointer<CChar>? = nil
                 if get_running_info(&infoPtr, &errPtr) == 0, let info = extractRustString(infoPtr) {
-                    completionHandler(info.data(using: .utf8))
+                    let data = info.data(using: .utf8)
+                    appendBootstrapDiagnostic("get_running_info succeeded: bytes=\(data?.count ?? 0)")
+                    completionHandler(data)
                 } else if let err = extractRustString(errPtr) {
                     logger.error("handleAppMessage() failed: \(err, privacy: .public)")
+                    appendBootstrapDiagnostic("get_running_info failed: \(err)")
                     completionHandler(nil)
                 } else {
+                    appendBootstrapDiagnostic("get_running_info failed: nil response and nil error")
                     completionHandler(nil)
                 }
             case .lastNetworkSettings:

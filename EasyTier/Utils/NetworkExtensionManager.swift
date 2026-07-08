@@ -22,7 +22,7 @@ protocol NetworkExtensionManagerProtocol: ObservableObject {
     @MainActor
     func connect() async throws
     func disconnect() async
-    func fetchRunningInfo(_ callback: @escaping ((NetworkStatus) -> Void))
+    func fetchRunningInfo(_ callback: @escaping ((Result<NetworkStatus, Error>) -> Void))
     func fetchLastNetworkSettings(_ callback: @escaping ((TunnelNetworkSettingsSnapshot?) -> Void))
     func updateName(name: String, server: String) async
     func clearCoreLog() async throws
@@ -75,6 +75,35 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
         }
     }
 
+    enum RunningInfoFetchError: LocalizedError {
+        case managerUnavailable
+        case providerSessionUnavailable(String)
+        case invalidStatus(String)
+        case commandEncodingFailed
+        case emptyResponse
+        case sendFailed(String)
+        case decodeFailed(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .managerUnavailable:
+                return "VPN manager is unavailable."
+            case .providerSessionUnavailable(let status):
+                return "VPN provider session is unavailable. Current status: \(status)."
+            case .invalidStatus(let status):
+                return "VPN provider session is invalid. Current status: \(status)."
+            case .commandEncodingFailed:
+                return "Failed to encode running info request."
+            case .emptyResponse:
+                return "VPN provider returned no running info."
+            case .sendFailed(let message):
+                return "Failed to request running info: \(message)"
+            case .decodeFailed(let message):
+                return "Failed to decode running info: \(message)"
+            }
+        }
+    }
+
     private var manager: NETunnelProviderManager?
     private var connection: NEVPNConnection?
     private var observer: Any?
@@ -111,6 +140,26 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
             name = "unknown"
         }
         return "\(name)(rawValue=\(status.rawValue))"
+    }
+
+    private static func describeDecodeError(_ error: Error) -> String {
+        switch error {
+        case DecodingError.keyNotFound(let key, let context):
+            return "missing key \(key.stringValue) at \(codingPathDescription(context.codingPath)): \(context.debugDescription)"
+        case DecodingError.typeMismatch(let type, let context):
+            return "type mismatch \(type) at \(codingPathDescription(context.codingPath)): \(context.debugDescription)"
+        case DecodingError.valueNotFound(let type, let context):
+            return "missing value \(type) at \(codingPathDescription(context.codingPath)): \(context.debugDescription)"
+        case DecodingError.dataCorrupted(let context):
+            return "data corrupted at \(codingPathDescription(context.codingPath)): \(context.debugDescription)"
+        default:
+            return error.localizedDescription
+        }
+    }
+
+    private static func codingPathDescription(_ path: [CodingKey]) -> String {
+        let description = path.map(\.stringValue).joined(separator: ".")
+        return description.isEmpty ? "<root>" : description
     }
 
     private func registerObserver() {
@@ -282,7 +331,6 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
         }
 
         let configData = try JSONEncoder().encode(options)
-        logger.debug("save options: \(configData.string ?? "nil")")
         do {
             try saveSharedVPNConfigData(configData)
             guard let fileData = try loadSharedVPNConfigDataFromFile(),
@@ -294,6 +342,7 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
             appendHostDiagnostic("save options failed: app group file write failed: \(error.localizedDescription)")
             throw error
         }
+        logger.debug("save options: bytes=\(configData.count), logLevel=\(options.logLevel.rawValue)")
         defaults.set(configData, forKey: VPN_CONFIG_KEY)
         defaults.synchronize()
         guard defaults.data(forKey: VPN_CONFIG_KEY) == configData else {
@@ -411,26 +460,61 @@ class NetworkExtensionManager: NetworkExtensionManagerProtocol {
         try? await manager.saveToPreferences()
     }
     
-    func fetchRunningInfo(_ callback: @escaping ((NetworkStatus) -> Void)) {
-        guard let manager else { return }
-        guard let session = manager.connection as? NETunnelProviderSession,
-              session.status != .invalid else { return }
+    func fetchRunningInfo(_ callback: @escaping ((Result<NetworkStatus, Error>) -> Void)) {
+        let complete: (Result<NetworkStatus, Error>) -> Void = { result in
+            DispatchQueue.main.async {
+                callback(result)
+            }
+        }
+        let fail: (RunningInfoFetchError) -> Void = { error in
+            Self.logger.error("fetchRunningInfo() failed: \(error.localizedDescription, privacy: .public)")
+            Self.appendHostDiagnostic("running_info failed: \(error.localizedDescription)")
+            complete(.failure(error))
+        }
+
+        guard let manager else {
+            fail(.managerUnavailable)
+            return
+        }
+
+        let currentStatus = manager.connection.status
+        Self.appendHostDiagnostic("running_info request: status=\(Self.describeStatus(currentStatus))")
+        guard let session = manager.connection as? NETunnelProviderSession else {
+            fail(.providerSessionUnavailable(Self.describeStatus(currentStatus)))
+            return
+        }
+        guard session.status != .invalid else {
+            fail(.invalidStatus(Self.describeStatus(session.status)))
+            return
+        }
+        guard let message = ProviderCommand.runningInfo.rawValue.data(using: .utf8) else {
+            fail(.commandEncodingFailed)
+            return
+        }
+
         do {
-            let message = ProviderCommand.runningInfo.rawValue.data(using: .utf8) ?? Data()
             try session.sendProviderMessage(message) { data in
-                guard let data else { return }
-                Self.logger.debug("fetchRunningInfo() received data: \(String(data: data, encoding: .utf8) ?? data.description)")
-                let info: NetworkStatus
-                do {
-                    info = try JSONDecoder().decode(NetworkStatus.self, from: data)
-                } catch {
-                    Self.logger.error("fetchRunningInfo() json deserialize failed: \(String(describing: error))")
+                guard let data else {
+                    fail(.emptyResponse)
                     return
                 }
-                callback(info)
+                Self.appendHostDiagnostic("running_info response: bytes=\(data.count)")
+                do {
+                    let info = try JSONDecoder().decode(NetworkStatus.self, from: data)
+                    let virtualIPv4 = info.myNodeInfo?.virtualIPv4?.description ?? "nil"
+                    Self.appendHostDiagnostic(
+                        "running_info decode succeeded: running=\(info.running), virtualIPv4=\(virtualIPv4), peers=\(info.peers.count), routes=\(info.routes.count), peerRoutePairs=\(info.peerRoutePairs.count)"
+                    )
+                    complete(.success(info))
+                } catch {
+                    let message = Self.describeDecodeError(error)
+                    Self.logger.error("fetchRunningInfo() json deserialize failed: \(message, privacy: .public)")
+                    Self.appendHostDiagnostic("running_info decode failed: \(message)")
+                    complete(.failure(RunningInfoFetchError.decodeFailed(message)))
+                }
             }
         } catch {
-            Self.logger.error("fetchRunningInfo() failed: \(String(describing: error))")
+            fail(.sendFailed(error.localizedDescription))
         }
     }
 
@@ -587,8 +671,8 @@ class MockNEManager: NetworkExtensionManagerProtocol {
 
     func clearCoreLog() async throws { }
 
-    func fetchRunningInfo(_ callback: @escaping ((NetworkStatus) -> Void)) {
-        callback(MockNEManager.dummyRunningInfo)
+    func fetchRunningInfo(_ callback: @escaping ((Result<NetworkStatus, Error>) -> Void)) {
+        callback(.success(MockNEManager.dummyRunningInfo))
     }
 
     func fetchLastNetworkSettings(_ callback: @escaping ((TunnelNetworkSettingsSnapshot?) -> Void)) {

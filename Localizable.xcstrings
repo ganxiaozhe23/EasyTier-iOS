@@ -3807,6 +3807,22 @@
         }
       }
     },
+    "running_info_unavailable" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Info unavailable"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "信息不可用"
+          }
+        }
+      }
+    },
     "rx_bytes" : {
       "localizations" : {
         "en" : {
