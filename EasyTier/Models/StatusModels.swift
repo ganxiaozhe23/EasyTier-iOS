@@ -693,17 +693,21 @@ struct NetworkStatus: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedRoutes = container.decodeLossyArray(Route.self, forKey: .routes)
+        let decodedPeers = container.decodeLossyArray(PeerInfo.self, forKey: .peers)
+        var decodedPeerRoutePairs = container.decodeLossyArray(PeerRoutePair.self, forKey: .peerRoutePairs)
+        if decodedPeerRoutePairs.isEmpty && !decodedRoutes.isEmpty {
+            decodedPeerRoutePairs = decodedRoutes.map { route in
+                PeerRoutePair(route: route, peer: decodedPeers.first { $0.peerId == route.peerId })
+            }
+        }
+
         devName = container.decodeSafely(String.self, forKey: .devName, defaultValue: "")
         myNodeInfo = container.decodeSafely(MyNodeInfo.self, forKey: .myNodeInfo)
         events = container.decodeLossyArray(String.self, forKey: .events)
-        routes = container.decodeLossyArray(Route.self, forKey: .routes)
-        peers = container.decodeLossyArray(PeerInfo.self, forKey: .peers)
-        peerRoutePairs = container.decodeLossyArray(PeerRoutePair.self, forKey: .peerRoutePairs)
-        if peerRoutePairs.isEmpty && !routes.isEmpty {
-            peerRoutePairs = routes.map { route in
-                PeerRoutePair(route: route, peer: peers.first { $0.peerId == route.peerId })
-            }
-        }
+        routes = decodedRoutes
+        peers = decodedPeers
+        peerRoutePairs = decodedPeerRoutePairs
         running = container.decodeSafely(Bool.self, forKey: .running, defaultValue: false)
         errorMsg = container.decodeSafely(String.self, forKey: .errorMsg)
     }
